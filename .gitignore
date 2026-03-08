@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Database / Vector store
+chroma_db/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.zed
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
+CLAUDE_INSTRUCTIONS.md
