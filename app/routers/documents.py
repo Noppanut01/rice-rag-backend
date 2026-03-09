@@ -15,15 +15,15 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.get("/", response_model=list[DocumentResponse])
 def list_documents(db: Session = Depends(get_db), _=Depends(require_admin)):
-    documents = db.query(Document).all()
     return [
         DocumentResponse(
             id=str(doc.id),
             filename=str(doc.filename),
+            file_type=Path(str(doc.filename)).suffix.lstrip(".").lower(),
             chroma_collection=str(doc.chroma_collection),
             created_at=str(doc.created_at),
         )
-        for doc in documents
+        for doc in db.query(Document).all()
     ]
 
 
@@ -45,22 +45,23 @@ def upload(
         collection_name = Path(file.filename).stem
         rag_service.ingest_document(file_path=str(file_path), collection_name=collection_name)
 
-        uploaded_file = Document(
+        doc = Document(
             filename=file.filename,
             file_path=str(file_path),
             chroma_collection=collection_name,
             uploaded_by=current_user.id,
         )
-        db.add(uploaded_file)
+        db.add(doc)
         db.commit()
-        db.refresh(uploaded_file)
+        db.refresh(doc)
 
         results.append(
             DocumentResponse(
-                id=str(uploaded_file.id),
-                filename=str(uploaded_file.filename),
-                chroma_collection=str(uploaded_file.chroma_collection),
-                created_at=str(uploaded_file.created_at),
+                id=str(doc.id),
+                filename=str(doc.filename),
+                file_type=Path(str(doc.filename)).suffix.lstrip(".").lower(),
+                chroma_collection=str(doc.chroma_collection),
+                created_at=str(doc.created_at),
             )
         )
 
@@ -72,7 +73,7 @@ def delete(id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
     document = db.query(Document).filter(Document.id == id).first()
     if not document:
         raise HTTPException(status_code=404, detail="ไม่พบเอกสาร")
-    rag_service.delete_collection(str(document.chroma_collection))
+    rag_service.delete_document(str(document.file_path))
     db.delete(document)
     db.commit()
     return Response(status_code=204)

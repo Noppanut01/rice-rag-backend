@@ -17,7 +17,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="username หรือ password ไม่ถูกต้อง",
         )
-    token = create_access_token({"sub": user.username})
+    token = create_access_token({"sub": user.username, "role": user.role})
     return TokenResponse(access_token=token)
 
 

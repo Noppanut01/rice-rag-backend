@@ -9,11 +9,11 @@ class ChatHistory(Base):
     __tablename__ = "chat_history"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     sources = Column(JSON, default=list)
-    # metrics สำหรับ experiment comparison
+    # experiment metrics
     model_used = Column(String)
     embedding_model = Column(String)
     retrieval_strategy = Column(String)

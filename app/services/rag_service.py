@@ -32,7 +32,6 @@ class RAGService:
         )
 
     def ingest_document(self, file_path: str, collection_name: str) -> str:
-        # เลือก loader ตาม extension
         if file_path.endswith(".pdf"):
             loader = PyPDFLoader(file_path)
         elif file_path.endswith(".docx"):
@@ -42,22 +41,13 @@ class RAGService:
 
         docs = loader.load()
         chunks = self.splitter.split_documents(docs)
-
-        # บันทึกลง ChromaDB แยก collection ต่อไฟล์
-        Chroma.from_documents(
-            chunks,
-            embedding=self.embeddings,
-            collection_name=collection_name,
-            persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
-        )
-
+        self.vectorstore.add_documents(chunks)
         return collection_name
 
     def ask_question(self, question: str) -> dict:
         start = time.time()
         ram_before = psutil.Process().memory_info().rss / 1024 / 1024
 
-        # Retrieve chunks
         if settings.RETRIEVAL_STRATEGY == "mmr":
             docs = self.vectorstore.max_marginal_relevance_search(
                 question, k=settings.RETRIEVAL_K, fetch_k=10
@@ -65,11 +55,9 @@ class RAGService:
         else:
             docs = self.vectorstore.similarity_search(question, k=settings.RETRIEVAL_K)
 
-        # Build context
         context = "\n\n".join([doc.page_content for doc in docs])
         sources = [doc.metadata.get("source", "") for doc in docs]
 
-        # Prompt
         prompt = PromptTemplate(
             template=(
                 "ใช้ข้อมูลต่อไปนี้เพื่อตอบคำถาม\n\n"
@@ -94,15 +82,11 @@ class RAGService:
             "chunk_size": settings.CHUNK_SIZE,
             "chunks_retrieved": len(docs),
             "response_time_ms": round((time.time() - start) * 1000),
-            "ram_used_mb": round(ram_after - ram_before, 2),
+            "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
-    def delete_collection(self, collection_name: str):
-        self.vectorstore._client.delete_collection(collection_name)
+    def delete_document(self, file_path: str):
+        self.vectorstore._collection.delete(where={"source": file_path})
 
-
-# TODO: เพิ่ม method ต่อไปนี้เมื่อต้องการ
-# - ask_question_with_collection(question, collection_name) — ถามเฉพาะเอกสารนั้น
-# - search_all_collections(question) — ค้นหาข้ามทุก collection แล้วรวมผล (แบบของเก่า)
 
 rag_service = RAGService()
