@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
@@ -7,6 +9,7 @@ from app.core.security import decode_access_token
 from app.database import SessionLocal
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 def get_db():
@@ -40,6 +43,23 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_optional_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+):
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+        username = payload.get("sub")
+        if not username:
+            return None
+    except JWTError:
+        return None
+    from app.models.user import User
+    return db.query(User).filter(User.username == username).first()
 
 
 def require_admin(current_user=Depends(get_current_user)):

@@ -11,7 +11,7 @@ Backend สำหรับระบบผู้เชี่ยวชาญกา
 - **FastAPI** — REST API
 - **PostgreSQL** — เก็บ users, chat history, plans, documents
 - **SQLAlchemy** — ORM (ใช้ `create_all` ไม่ใช้ Alembic)
-- **ChromaDB** — Vector store สำหรับ embeddings
+- **ChromaDB** — Vector store สำหรับ embeddings (single collection `rice_knowledge`)
 - **LangChain** — RAG pipeline
 - **Ollama** — รัน local LLM
   - LLM: `gemma3:4b` (prod) / `llama3.2:3b` (dev)
@@ -91,29 +91,34 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 | Method | Endpoint | Auth | คำอธิบาย |
 |--------|----------|------|---------|
 | POST | `/auth/register` | — | สมัครสมาชิก |
-| POST | `/auth/login` | — | เข้าสู่ระบบ รับ JWT token |
-| POST | `/chat/` | user | ถามคำถาม → RAG ตอบ + บันทึก metrics |
+| POST | `/auth/login` | — | เข้าสู่ระบบ รับ JWT token (JSON body) |
+| POST | `/chat/` | optional | ถามคำถาม → RAG ตอบ (login → บันทึก history) |
+| POST | `/chat/no-rag` | optional | ถามโดยไม่ใช้ RAG (สำหรับ experiment) |
 | GET | `/chat/history` | user | ประวัติการถาม |
-| POST | `/plans/` | user | สร้างแผนการปลูกข้าวจาก RAG |
+| POST | `/plans/` | user | สร้างแผนการปลูกข้าว |
 | GET | `/plans/` | user | ดูแผนทั้งหมดของตัวเอง |
+| PATCH | `/plans/{id}/tasks/{task_id}/toggle` | user | toggle task เสร็จ/ยังไม่เสร็จ |
+| DELETE | `/plans/{id}` | user | ลบแผน |
+| GET | `/documents/` | — | ดูเอกสารทั้งหมด |
+| GET | `/documents/{id}/file` | — | เปิดอ่านไฟล์เอกสาร (PDF เปิดใน browser) |
+| POST | `/documents/upload` | admin | อัปโหลดเอกสาร → embed เข้า ChromaDB |
+| DELETE | `/documents/{id}` | admin | ลบเอกสาร |
 | GET | `/prompts/` | — | ดู prompt templates |
 | POST | `/prompts/` | admin | สร้าง prompt template |
 | DELETE | `/prompts/{id}` | admin | ลบ prompt template |
-| GET | `/documents/` | admin | ดูเอกสารทั้งหมด |
-| POST | `/documents/upload` | admin | อัปโหลดเอกสาร → embed เข้า ChromaDB |
-| DELETE | `/documents/{id}` | admin | ลบเอกสาร |
 | GET | `/admin/faq` | admin | top 10 คำถามที่ถามบ่อย |
 
 ดูรายละเอียดทุก endpoint ได้ที่ [API_SPEC.md](./API_SPEC.md)
 
 ---
 
-## Role
+## Role & Access
 
 | Role | สิทธิ์ |
 |------|--------|
-| `user` | chat, plans, ดู prompts |
-| `admin` | ทุกอย่าง + จัดการ documents, prompts, ดู faq |
+| guest (ไม่ login) | chat, ดูเอกสาร/อ่าน PDF, ดู prompts |
+| `user` | ทุกอย่างของ guest + plans, chat history |
+| `admin` | ทุกอย่าง + จัดการ documents/prompts, ดู FAQ |
 
 สมัครใหม่ได้ role `user` อัตโนมัติ — เปลี่ยนเป็น admin ต้องแก้ DB โดยตรง
 
@@ -128,3 +133,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 - `model_used`, `embedding_model`, `retrieval_strategy`, `chunk_size`, `chunks_retrieved`
 
 ปรับ config ผ่าน `.env` เพื่อทำ experiment โดยไม่ต้องแก้ code
+
+---
+
+## Branch
+
+- `main` — stable
+- `dev` — main development branch
+- `feature/rag-plan-generation` — RAG-based plan generation (TODO: รอ PDF documents)

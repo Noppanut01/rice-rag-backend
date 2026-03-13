@@ -58,6 +58,7 @@ Authorization: Bearer <access_token>
 ```
 
 JWT payload มี field: `sub` (username), `role` ("user" | "admin")
+Frontend decode JWT เอาเพื่อได้ username และ role โดยไม่ต้องเรียก /me
 
 **Error**
 - `401` — username หรือ password ผิด
@@ -66,7 +67,9 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
 
 ## POST /chat/
 
-ถามคำถามผ่าน RAG — ต้อง login
+ถามคำถามผ่าน RAG — **optional auth**
+- ไม่ login → ตอบได้ แต่ไม่บันทึก history
+- login → ตอบและบันทึก chat_history
 
 **Request**
 ```json
@@ -90,8 +93,17 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
 }
 ```
 
-**Error**
-- `401` — ไม่ได้ login
+---
+
+## POST /chat/no-rag
+
+ถามคำถามโดยไม่ใช้ RAG context — สำหรับ experiment เปรียบเทียบ
+- ไม่บันทึก history
+- optional auth
+
+**Request / Response** — เหมือน `POST /chat/` ทุกอย่าง
+- `retrieval_strategy` จะเป็น `"none"`
+- `chunks_retrieved` จะเป็น `0`
 
 ---
 
@@ -116,15 +128,30 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
 
 ## POST /plans/
 
-สร้างแผนการปลูกข้าวด้วย RAG — ต้อง login
+สร้างแผนการปลูกข้าว — ต้อง login
+Frontend generate tasks ด้วย planGenerator.ts แล้วส่งมาพร้อมกัน
+
+> **TODO (feature/rag-plan-generation)**: เมื่อมี PDF พร้อมแล้ว
+> จะเปลี่ยนให้ backend generate tasks ด้วย RAG แทน
+> frontend จะส่งแค่ข้อมูลพื้นฐาน ไม่ส่ง tasks
 
 **Request**
 ```json
 {
+  "plot_name": "string | null",
+  "variety_id": "string",
   "variety_name": "string",
   "start_date": "YYYY-MM-DD",
   "area_rai": 0.0,
-  "plot_name": "string | null"
+  "tasks": [
+    {
+      "day": 1,
+      "stage": "string",
+      "task_name": "string",
+      "description": "string | null",
+      "date": "YYYY-MM-DD"
+    }
+  ]
 }
 ```
 
@@ -132,14 +159,22 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
 ```json
 {
   "id": "uuid",
+  "variety_id": "string",
   "variety_name": "string",
   "start_date": "string",
   "area_rai": 0.0,
   "plot_name": "string | null",
-  "plan_content": {
-    "answer": "string",
-    "sources": ["string"]
-  },
+  "tasks": [
+    {
+      "id": "uuid",
+      "day": 1,
+      "stage": "string",
+      "task_name": "string",
+      "description": "string | null",
+      "date": "string",
+      "is_completed": false
+    }
+  ],
   "created_at": "string"
 }
 ```
@@ -157,58 +192,31 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
 
 ---
 
-## GET /prompts/
+## PATCH /plans/{plan_id}/tasks/{task_id}/toggle
 
-ดึง prompt templates ทั้งหมด — ไม่ต้อง login (public)
+toggle task เสร็จ/ยังไม่เสร็จ — ต้อง login
 
-**Response 200**
-```json
-[
-  {
-    "id": "uuid",
-    "title": "string",
-    "content": "string",
-    "created_at": "string"
-  }
-]
-```
-
----
-
-## POST /prompts/
-
-สร้าง prompt template — ต้องเป็น admin
-
-**Request**
-```json
-{
-  "title": "string",
-  "content": "string"
-}
-```
-
-**Response 201** — PromptTemplateResponse (โครงสร้างเดียวกับ GET /prompts/)
+**Response 200** — PlanTaskResponse (task ที่อัพเดตแล้ว)
 
 **Error**
-- `403` — ไม่ใช่ admin
+- `404` — ไม่พบแผนหรืองาน
 
 ---
 
-## DELETE /prompts/{template_id}
+## DELETE /plans/{plan_id}
 
-ลบ prompt template — ต้องเป็น admin
+ลบแผนพร้อม tasks ทั้งหมด — ต้อง login เจ้าของแผนเท่านั้น
 
 **Response 204** — No Content
 
 **Error**
-- `403` — ไม่ใช่ admin
-- `404` — ไม่พบ template
+- `404` — ไม่พบแผน
 
 ---
 
 ## GET /documents/
 
-ดูเอกสารทั้งหมดในระบบ — ต้องเป็น admin
+ดูเอกสารทั้งหมดในระบบ — **public** (ไม่ต้อง login)
 
 **Response 200**
 ```json
@@ -222,6 +230,17 @@ JWT payload มี field: `sub` (username), `role` ("user" | "admin")
   }
 ]
 ```
+
+---
+
+## GET /documents/{id}/file
+
+เปิดอ่านไฟล์เอกสารจริง — **public** (ไม่ต้อง login)
+
+**Response** — ไฟล์ตาม media type (PDF เปิดใน browser, docx ดาวน์โหลด)
+
+**Error**
+- `404` — ไม่พบเอกสารหรือไฟล์
 
 ---
 
@@ -254,6 +273,55 @@ files: File[]   (รองรับ .pdf .txt .docx, ส่งได้หลา
 
 ---
 
+## GET /prompts/
+
+ดึง prompt templates ทั้งหมด — public
+
+**Response 200**
+```json
+[
+  {
+    "id": "uuid",
+    "title": "string",
+    "content": "string",
+    "created_at": "string"
+  }
+]
+```
+
+---
+
+## POST /prompts/
+
+สร้าง prompt template — ต้องเป็น admin
+
+**Request**
+```json
+{
+  "title": "string",
+  "content": "string"
+}
+```
+
+**Response 201** — PromptTemplateResponse
+
+**Error**
+- `403` — ไม่ใช่ admin
+
+---
+
+## DELETE /prompts/{template_id}
+
+ลบ prompt template — ต้องเป็น admin
+
+**Response 204** — No Content
+
+**Error**
+- `403` — ไม่ใช่ admin
+- `404` — ไม่พบ template
+
+---
+
 ## GET /admin/faq
 
 ดู 10 คำถามที่ถูกถามบ่อยที่สุด — ต้องเป็น admin
@@ -270,12 +338,25 @@ files: File[]   (รองรับ .pdf .txt .docx, ส่งได้หลา
 
 ---
 
-## Role
+## Role & Access
 
-| Role | สิทธิ์ |
-|------|--------|
-| `user` | chat, plans, ดู prompts |
-| `admin` | ทุกอย่าง + จัดการ documents, prompts, ดู faq |
+| endpoint | guest | user | admin |
+|---|---|---|---|
+| POST /chat/ | ✅ (ไม่บันทึก) | ✅ | ✅ |
+| POST /chat/no-rag | ✅ | ✅ | ✅ |
+| GET /chat/history | ❌ | ✅ | ✅ |
+| GET /documents/ | ✅ | ✅ | ✅ |
+| GET /documents/{id}/file | ✅ | ✅ | ✅ |
+| POST /documents/upload | ❌ | ❌ | ✅ |
+| DELETE /documents/{id} | ❌ | ❌ | ✅ |
+| POST /plans/ | ❌ | ✅ | ✅ |
+| GET /plans/ | ❌ | ✅ | ✅ |
+| PATCH /plans/.../toggle | ❌ | ✅ | ✅ |
+| DELETE /plans/{id} | ❌ | ✅ | ✅ |
+| GET /prompts/ | ✅ | ✅ | ✅ |
+| POST /prompts/ | ❌ | ❌ | ✅ |
+| DELETE /prompts/{id} | ❌ | ❌ | ✅ |
+| GET /admin/faq | ❌ | ❌ | ✅ |
 
 user ธรรมดา register แล้วได้ role = "user" อัตโนมัติ
 การเปลี่ยน role เป็น admin ต้องแก้ตรง DB โดยตรง (ไม่มี endpoint)
