@@ -85,6 +85,64 @@ class RAGService:
             "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
+    def generate_plan_from_rag(self, variety_name: str, start_date, area_rai: float) -> str:
+        query = f"แผนการปลูกและดูแลรักษาข้าว{variety_name} ขั้นตอนการดูแล ระยะการเจริญเติบโต การใส่ปุ๋ย การจัดการน้ำ"
+        docs = self.vectorstore.similarity_search(query, k=settings.RETRIEVAL_K)
+        context = "\n\n".join([doc.page_content for doc in docs])
+
+        prompt = PromptTemplate(
+            template=(
+                "จากข้อมูลต่อไปนี้ สร้างแผนการปลูกข้าว{variety_name} เริ่มวันที่ {start_date} พื้นที่ {area_rai} ไร่\n\n"
+                "ข้อมูล:\n{context}\n\n"
+                "ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกจาก JSON ห้ามมี markdown\n"
+                "ตัวอย่าง output ที่ถูกต้อง:\n"
+                '{{"tasks": [{{"day": 1, "stage": "ระยะต้นกล้า", "task_name": "เตรียมดิน", "description": "ไถคราดและปรับระดับดิน"}}, {{"day": 15, "stage": "ระยะแตกกอ", "task_name": "ใส่ปุ๋ย", "description": "ปุ๋ย 16-20-0 อัตรา 25 กก./ไร่"}}]}}\n\n'
+                "JSON:"
+            ),
+            input_variables=["variety_name", "start_date", "area_rai", "context"],
+        )
+        llm_zero_temp = OllamaLLM(
+            model=settings.OLLAMA_LLM_MODEL,
+            base_url=settings.OLLAMA_BASE_URL,
+            temperature=0,
+        )
+        chain = prompt | llm_zero_temp
+        return chain.invoke({
+            "variety_name": variety_name,
+            "start_date": str(start_date),
+            "area_rai": area_rai,
+            "context": context,
+        })
+
+    def ask_question_no_rag(self, question: str) -> dict:
+        start = time.time()
+        ram_before = psutil.Process().memory_info().rss / 1024 / 1024
+
+        prompt = PromptTemplate(
+            template=(
+                "ตอบคำถามต่อไปนี้จากความรู้ทั่วไปของคุณ\n\n"
+                "คำถาม: {question}\n\n"
+                "คำตอบ:"
+            ),
+            input_variables=["question"],
+        )
+        chain = prompt | self.llm
+        answer = chain.invoke({"question": question})
+
+        ram_after = psutil.Process().memory_info().rss / 1024 / 1024
+
+        return {
+            "answer": answer,
+            "sources": [],
+            "model_used": settings.OLLAMA_LLM_MODEL,
+            "embedding_model": "",
+            "retrieval_strategy": "none",
+            "chunk_size": 0,
+            "chunks_retrieved": 0,
+            "response_time_ms": round((time.time() - start) * 1000),
+            "ram_used_mb": round(abs(ram_after - ram_before), 2),
+        }
+
     def delete_document(self, file_path: str):
         self.vectorstore._collection.delete(where={"source": file_path})
 

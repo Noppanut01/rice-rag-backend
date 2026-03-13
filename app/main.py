@@ -1,7 +1,12 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
 from app.database import Base, engine
+
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 # noqa: F401 — import models so Base knows all tables before create_all
 from app.models import chat, document, plan, prompt, user  # noqa: F401
@@ -10,7 +15,7 @@ app = FastAPI(title="Rice Farming RAG API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
