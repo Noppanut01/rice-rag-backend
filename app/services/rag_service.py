@@ -1,3 +1,4 @@
+import os
 import time
 
 import psutil
@@ -147,6 +148,8 @@ class RAGService:
 
     def delete_document(self, file_path: str):
         self.vectorstore._collection.delete(where={"source": file_path})
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 
 rag_service = RAGService()
