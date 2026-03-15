@@ -139,5 +139,4 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ## Branch
 
 - `main` — stable
-- `dev` — main development branch
-- `feature/rag-plan-generation` — RAG-based plan generation (TODO: รอ PDF documents)
+- `dev` — main development branch (current)

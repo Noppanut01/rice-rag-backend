@@ -20,7 +20,7 @@
 
 ## Phase 2 — RAG Core ✅
 
-- [x] `app/services/rag_service.py` — ingest_document, ask_question, ask_question_no_rag, delete_document + metrics
+- [x] `app/services/rag_service.py` — ingest_document, ask_question, ask_question_no_rag, delete_document, generate_plan_from_rag ✅ + metrics
 - [x] `app/routers/documents.py` — list (public), upload/delete (admin), view file (public)
 - [x] `app/routers/chat.py` — POST /chat/ (optional auth), POST /chat/no-rag, GET /chat/history
 
@@ -36,7 +36,7 @@
 - [x] `app/schemas/plan.py` — PlanTaskInput, PlanTaskResponse, PlanRequest (มี tasks), PlanResponse (มี tasks)
 - [x] `app/schemas/document.py` — DocumentResponse (มี file_type)
 - [x] `app/routers/plans.py` — POST/GET /plans/, PATCH toggle task, DELETE plan
-- [x] `app/services/plan_service.py` — 🔧 TODO skeleton (generate_plan raises NotImplementedError รอ PDF)
+- [x] `app/services/plan_service.py` — generate_plan ✅ (เรียก RAG → parse JSON → calc dates → return tasks)
 
 ## Phase 5 — Admin Features ✅
 
@@ -49,13 +49,9 @@
 
 ---
 
-## ถัดไป ⏭ (feature/rag-plan-generation)
+## ถัดไป ⏭
 
-- [ ] หา/อัพโหลด PDF เอกสารเกี่ยวกับการปลูกข้าวเข้า knowledge base
-- [ ] implement `rag_service.generate_plan_from_rag()` — RAG query + JSON-only prompt
-- [ ] implement `plan_service.generate_plan()` — parse JSON, calc dates, return tasks
-- [ ] update `plans.py` — switch จาก frontend tasks → plan_service
-- [ ] update frontend CreatePlan — ส่งแค่ข้อมูลพื้นฐาน ไม่ส่ง tasks
+- [ ] หา/อัพโหลด PDF เอกสารเกี่ยวกับการปลูกข้าวเข้า knowledge base (rice varieties, ขั้นตอน, ปุ๋ย)
 - [ ] เก็บ experiment metrics เปรียบเทียบ RAG vs no-RAG, config ต่างๆ (baseline vs optimized)
 
 ---
@@ -77,4 +73,4 @@
 - เพิ่ม `GET /documents/{id}/file` สำหรับเปิดอ่านไฟล์ใน browser
 - `get_optional_user` dependency ใน dependencies.py
 
-*อัปเดต: 2026-03-13*
+*อัปเดต: 2026-03-15*
