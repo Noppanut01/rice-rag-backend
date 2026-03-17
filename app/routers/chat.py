@@ -16,7 +16,7 @@ def chat(
     current_user=Depends(get_optional_user),
 ):
     question = body.question
-    result = rag_service.ask_question(question)
+    result = rag_service.ask_question(question, collection=body.collection)
 
     if current_user is not None:
         chat_record = ChatHistory(

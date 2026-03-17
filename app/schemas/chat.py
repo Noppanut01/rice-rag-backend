@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     question: str
+    collection: str | None = None
 
 
 class ChatResponse(BaseModel):

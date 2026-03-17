@@ -8,8 +8,8 @@ from app.services.rag_service import rag_service
 
 
 class PlanService:
-    def generate_plan(self, variety_name: str, start_date: date, area_rai: float) -> list[dict]:
-        raw = rag_service.generate_plan_from_rag(variety_name, start_date, area_rai)
+    def generate_plan(self, variety_id: str, variety_name: str, start_date: date, area_rai: float) -> list[dict]:
+        raw = rag_service.generate_plan_from_rag(variety_id, variety_name, start_date, area_rai)
 
         # ลอง parse JSON ตรงๆ ก่อน แล้วค่อย fallback ไป regex
         data = None

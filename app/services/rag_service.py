@@ -10,6 +10,15 @@ from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from app.core.config import settings
 
+COLLECTIONS = ["jasmine", "rd43", "kk15", "pathumthani", "general"]
+
+VARIETY_COLLECTION_MAP = {
+    "jasmine": "jasmine",
+    "rd43": "rd43",
+    "kk15": "kk15",
+    "pathumthani": "pathumthani",
+}
+
 
 class RAGService:
     def __init__(self):
@@ -17,11 +26,14 @@ class RAGService:
             model=settings.OLLAMA_EMBEDDING_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
         )
-        self.vectorstore = Chroma(
-            collection_name="rice_knowledge",
-            embedding_function=self.embeddings,
-            persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
-        )
+        self.vectorstores = {
+            name: Chroma(
+                collection_name=name,
+                embedding_function=self.embeddings,
+                persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
+            )
+            for name in COLLECTIONS
+        }
         self.llm = OllamaLLM(
             model=settings.OLLAMA_LLM_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
@@ -31,6 +43,31 @@ class RAGService:
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
         )
+
+    def _search(self, collections: list[str], question: str) -> list:
+        all_docs = []
+        for name in collections:
+            vs = self.vectorstores.get(name)
+            if vs is None:
+                continue
+            try:
+                if vs._collection.count() == 0:
+                    continue
+                if settings.RETRIEVAL_STRATEGY == "mmr":
+                    docs = vs.max_marginal_relevance_search(question, k=settings.RETRIEVAL_K, fetch_k=10)
+                else:
+                    docs = vs.similarity_search(question, k=settings.RETRIEVAL_K)
+                all_docs.extend(docs)
+            except Exception:
+                pass
+        seen = set()
+        unique = []
+        for doc in all_docs:
+            key = doc.page_content[:80]
+            if key not in seen:
+                seen.add(key)
+                unique.append(doc)
+        return unique[:settings.RETRIEVAL_K * 2]
 
     def ingest_document(self, file_path: str, collection_name: str) -> str:
         if file_path.endswith(".pdf"):
@@ -42,19 +79,25 @@ class RAGService:
 
         docs = loader.load()
         chunks = self.splitter.split_documents(docs)
-        self.vectorstore.add_documents(chunks)
+        vs = self.vectorstores.get(collection_name)
+        if vs is None:
+            vs = Chroma(
+                collection_name=collection_name,
+                embedding_function=self.embeddings,
+                persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
+            )
+            self.vectorstores[collection_name] = vs
+        vs.add_documents(chunks)
         return collection_name
 
-    def ask_question(self, question: str) -> dict:
+    def ask_question(self, question: str, collection: str | None = None) -> dict:
         start = time.time()
         ram_before = psutil.Process().memory_info().rss / 1024 / 1024
 
-        if settings.RETRIEVAL_STRATEGY == "mmr":
-            docs = self.vectorstore.max_marginal_relevance_search(
-                question, k=settings.RETRIEVAL_K, fetch_k=10
-            )
+        if collection and collection in COLLECTIONS:
+            docs = self._search([collection, "general"], question)
         else:
-            docs = self.vectorstore.similarity_search(question, k=settings.RETRIEVAL_K)
+            docs = self._search(COLLECTIONS, question)
 
         context = "\n\n".join([doc.page_content for doc in docs])
         sources = [doc.metadata.get("source", "") for doc in docs]
@@ -63,7 +106,10 @@ class RAGService:
             template=(
                 "คุณเป็นผู้เชี่ยวชาญด้านการปลูกข้าว ตอบเป็นภาษาไทย\n"
                 "หากคำถามเกี่ยวข้องกับข้อมูลด้านล่าง ให้ใช้ข้อมูลนั้นประกอบการตอบ\n"
-                "หากคำถามไม่เกี่ยวข้องกับข้อมูลด้านล่าง ให้ตอบตามปกติจากความรู้ทั่วไป\n\n"
+                "หากคำถามไม่เกี่ยวข้องกับข้อมูลด้านล่าง ให้ตอบตามปกติจากความรู้ทั่วไป\n"
+                "ถ้าผู้ใช้ถามเกี่ยวกับการปลูกข้าวหรือการดูแลข้าวโดยไม่ระบุพันธุ์ "
+                "ให้ถามกลับว่าต้องการข้อมูลพันธุ์ใด และแนะนำว่าระบบมีข้อมูลสำหรับ: "
+                "ข้าวหอมมะลิ, ข้าว RD43, ข้าวกข 15 และข้าวปทุมธานี\n\n"
                 "ข้อมูล:\n{context}\n\n"
                 "คำถาม: {question}\n\n"
                 "คำตอบ:"
@@ -88,9 +134,10 @@ class RAGService:
             "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
-    def generate_plan_from_rag(self, variety_name: str, start_date, area_rai: float) -> str:
+    def generate_plan_from_rag(self, variety_id: str, variety_name: str, start_date, area_rai: float) -> str:
         query = f"แผนการปลูกและดูแลรักษาข้าว{variety_name} ขั้นตอนการดูแล ระยะการเจริญเติบโต การใส่ปุ๋ย การจัดการน้ำ"
-        docs = self.vectorstore.similarity_search(query, k=settings.RETRIEVAL_K)
+        collection = VARIETY_COLLECTION_MAP.get(variety_id, "general")
+        docs = self._search([collection, "general"], query)
         context = "\n\n".join([doc.page_content for doc in docs])
 
         prompt = PromptTemplate(
@@ -146,8 +193,10 @@ class RAGService:
             "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
-    def delete_document(self, file_path: str):
-        self.vectorstore._collection.delete(where={"source": file_path})
+    def delete_document(self, file_path: str, collection_name: str):
+        vs = self.vectorstores.get(collection_name)
+        if vs:
+            vs._collection.delete(where={"source": file_path})
         if os.path.exists(file_path):
             os.remove(file_path)
 

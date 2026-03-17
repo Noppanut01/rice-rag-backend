@@ -16,6 +16,7 @@ def create_plan(
     current_user=Depends(get_current_user),
 ):
     tasks = plan_service.generate_plan(
+        variety_id=body.variety_id,
         variety_name=body.variety_name,
         start_date=body.start_date,
         area_rai=body.area_rai,
