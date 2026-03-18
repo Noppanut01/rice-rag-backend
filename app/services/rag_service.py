@@ -1,4 +1,5 @@
 import os
+import re
 import time
 
 import psutil
@@ -70,6 +71,7 @@ class RAGService:
         return unique[:settings.RETRIEVAL_K * 2]
 
     def ingest_document(self, file_path: str, collection_name: str) -> str:
+        file_path = os.path.abspath(file_path)
         if file_path.endswith(".pdf"):
             loader = PyPDFLoader(file_path)
         elif file_path.endswith(".docx"):
@@ -90,7 +92,7 @@ class RAGService:
         vs.add_documents(chunks)
         return collection_name
 
-    def ask_question(self, question: str, collection: str | None = None) -> dict:
+    def ask_question(self, question: str, collection: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
         ram_before = psutil.Process().memory_info().rss / 1024 / 1024
 
@@ -100,25 +102,36 @@ class RAGService:
             docs = self._search(COLLECTIONS, question)
 
         context = "\n\n".join([doc.page_content for doc in docs])
-        sources = [doc.metadata.get("source", "") for doc in docs]
+        seen_sources = set()
+        sources = []
+        for doc in docs:
+            src = os.path.basename(doc.metadata.get("source", ""))
+            if src and src not in seen_sources:
+                seen_sources.add(src)
+                sources.append(src)
+
+        history_text = ""
+        if history:
+            lines = []
+            for h in history[-6:]:  # เก็บแค่ 3 รอบล่าสุด
+                role = "ผู้ใช้" if h["role"] == "user" else "ผู้ช่วย"
+                lines.append(f"{role}: {h['content']}")
+            history_text = "\n".join(lines) + "\n\n"
 
         prompt = PromptTemplate(
             template=(
-                "คุณเป็นผู้เชี่ยวชาญด้านการปลูกข้าว ตอบเป็นภาษาไทย\n"
-                "หากคำถามเกี่ยวข้องกับข้อมูลด้านล่าง ให้ใช้ข้อมูลนั้นประกอบการตอบ\n"
-                "หากคำถามไม่เกี่ยวข้องกับข้อมูลด้านล่าง ให้ตอบตามปกติจากความรู้ทั่วไป\n"
-                "ถ้าผู้ใช้ถามเกี่ยวกับการปลูกข้าวหรือการดูแลข้าวโดยไม่ระบุพันธุ์ "
-                "ให้ถามกลับว่าต้องการข้อมูลพันธุ์ใด และแนะนำว่าระบบมีข้อมูลสำหรับ: "
-                "ข้าวหอมมะลิ, ข้าว RD43, ข้าวกข 15 และข้าวปทุมธานี\n\n"
+                "คุณเป็นผู้เชี่ยวชาญด้านการปลูกข้าว เชี่ยวชาญเป็นพิเศษใน 4 พันธุ์ ได้แก่ "
+                "ข้าวหอมมะลิ, ข้าว RD43, ข้าวกข 15 และข้าวปทุมธานี ตอบเป็นภาษาไทย\n"
+                "หากมีข้อมูลอ้างอิงด้านล่าง ให้ใช้ข้อมูลนั้นประกอบการตอบ\n"
+                "หากไม่มีข้อมูลด้านล่าง ให้บอกว่าไม่มีข้อมูลเรื่องนี้ในระบบและไม่สามารถตอบได้\n\n"
                 "ข้อมูล:\n{context}\n\n"
-                "คำถาม: {question}\n\n"
+                "{history}คำถาม: {question}\n\n"
                 "คำตอบ:"
             ),
-            input_variables=["context", "question"],
+            input_variables=["context", "history", "question"],
         )
-
-        chain = prompt | self.llm
-        answer = chain.invoke({"context": context, "question": question})
+        answer = (prompt | self.llm).invoke({"context": context, "history": history_text, "question": question})
+        answer = re.sub(r'\*+', '', answer).strip()
 
         ram_after = psutil.Process().memory_info().rss / 1024 / 1024
 
@@ -194,6 +207,7 @@ class RAGService:
         }
 
     def delete_document(self, file_path: str, collection_name: str):
+        file_path = os.path.abspath(file_path)
         vs = self.vectorstores.get(collection_name)
         if vs:
             vs._collection.delete(where={"source": file_path})
