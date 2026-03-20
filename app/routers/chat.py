@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm.session import Session
+from sqlalchemy.sql.expression import desc
 
 from app.dependencies import get_current_user, get_db, get_optional_user
 from app.models.chat import ChatHistory
@@ -17,7 +18,9 @@ def chat(
 ):
     question = body.question
     history = [{"role": h.role, "content": h.content} for h in body.history]
-    result = rag_service.ask_question(question, collection=body.collection, history=history)
+    result = rag_service.ask_question(
+        question, collection=body.collection, history=history
+    )
 
     if current_user is not None:
         chat_record = ChatHistory(
@@ -71,7 +74,10 @@ def chat_no_rag(
 @router.get("/history", response_model=list[ChatHistoryItem])
 def history(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     chat_histories = (
-        db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id).all()
+        db.query(ChatHistory)
+        .filter(ChatHistory.user_id == current_user.id)
+        .order_by(desc(ChatHistory.created_at))
+        .all()
     )
     return [
         ChatHistoryItem(
