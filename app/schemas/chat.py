@@ -16,7 +16,6 @@ class ChatResponse(BaseModel):
     answer: str
     sources: list[str]
     response_time_ms: int
-    ram_used_mb: float
     model_used: str
     embedding_model: str
     retrieval_strategy: str

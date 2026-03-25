@@ -3,7 +3,6 @@ import os
 import re
 import time
 
-import psutil
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -95,7 +94,6 @@ class RAGService:
 
     def ask_question(self, question: str, collection: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
-        ram_before = psutil.Process().memory_info().rss / 1024 / 1024
 
         if collection and collection in COLLECTIONS:
             docs = self._search([collection, "general"], question)
@@ -134,8 +132,6 @@ class RAGService:
         answer = (prompt | self.llm).invoke({"context": context, "history": history_text, "question": question})
         answer = re.sub(r'\*+', '', answer).strip()
 
-        ram_after = psutil.Process().memory_info().rss / 1024 / 1024
-
         return {
             "answer": answer,
             "sources": sources,
@@ -145,7 +141,6 @@ class RAGService:
             "chunk_size": settings.CHUNK_SIZE,
             "chunks_retrieved": len(docs),
             "response_time_ms": round((time.time() - start) * 1000),
-            "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
     def generate_plan_from_rag(self, variety_id: str, variety_name: str, start_date, area_rai: float) -> str:
@@ -212,7 +207,6 @@ class RAGService:
 
     def ask_question_no_rag(self, question: str) -> dict:
         start = time.time()
-        ram_before = psutil.Process().memory_info().rss / 1024 / 1024
 
         prompt = PromptTemplate(
             template=(
@@ -225,8 +219,6 @@ class RAGService:
         chain = prompt | self.llm
         answer = chain.invoke({"question": question})
 
-        ram_after = psutil.Process().memory_info().rss / 1024 / 1024
-
         return {
             "answer": answer,
             "sources": [],
@@ -236,7 +228,6 @@ class RAGService:
             "chunk_size": 0,
             "chunks_retrieved": 0,
             "response_time_ms": round((time.time() - start) * 1000),
-            "ram_used_mb": round(abs(ram_after - ram_before), 2),
         }
 
     def delete_document(self, file_path: str, collection_name: str):

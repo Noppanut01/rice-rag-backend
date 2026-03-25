@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text, func
 
 from app.database import Base
 
@@ -20,5 +20,4 @@ class ChatHistory(Base):
     chunk_size = Column(Integer)
     chunks_retrieved = Column(Integer)
     response_time_ms = Column(Integer)
-    ram_used_mb = Column(Float)
     created_at = Column(DateTime, server_default=func.now())

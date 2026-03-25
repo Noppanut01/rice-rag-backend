@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm.session import Session
-from sqlalchemy.sql.expression import desc
 
 from app.dependencies import get_current_user, get_db, get_optional_user
 from app.models.chat import ChatHistory
@@ -34,7 +33,6 @@ def chat(
             chunk_size=result["chunk_size"],
             chunks_retrieved=result["chunks_retrieved"],
             response_time_ms=result["response_time_ms"],
-            ram_used_mb=result["ram_used_mb"],
         )
         db.add(chat_record)
         db.commit()
@@ -43,7 +41,6 @@ def chat(
         answer=result["answer"],
         sources=result["sources"],
         response_time_ms=result["response_time_ms"],
-        ram_used_mb=result["ram_used_mb"],
         model_used=result["model_used"],
         embedding_model=result["embedding_model"],
         retrieval_strategy=result["retrieval_strategy"],
@@ -62,7 +59,6 @@ def chat_no_rag(
         answer=result["answer"],
         sources=result["sources"],
         response_time_ms=result["response_time_ms"],
-        ram_used_mb=result["ram_used_mb"],
         model_used=result["model_used"],
         embedding_model=result["embedding_model"],
         retrieval_strategy=result["retrieval_strategy"],
