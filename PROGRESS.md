@@ -40,8 +40,9 @@
 
 ## Phase 5 — Admin Features ✅
 
-- [x] `app/routers/prompts.py` — GET /prompts (public), POST/DELETE (admin only)
+- [x] `app/routers/prompts.py` — GET /prompts (public), POST/DELETE (admin only), **POST /prompts/generate (admin) — LLM generate จากทุก collection, temperature=0.7, return list[{title, content}]**
 - [x] `app/routers/admin.py` — GET /admin/faq (top 10 คำถามที่ถามบ่อย)
+- [x] `app/services/rag_service.py` — เพิ่ม `generate_prompt_suggestions()` ดึง chunks จากทุก collection → LLM สร้าง 5 คำถาม
 
 ## Docs ✅
 
@@ -51,6 +52,8 @@
 
 ## ถัดไป ⏭
 
+- [ ] commit + push feature/multi-collection (backend + frontend)
+- [ ] commit + push feature/generate-prompt-template (backend + frontend)
 - [ ] หา/อัพโหลด PDF เอกสารเกี่ยวกับการปลูกข้าวเข้า knowledge base (rice varieties, ขั้นตอน, ปุ๋ย)
 - [ ] เก็บ experiment metrics เปรียบเทียบ RAG vs no-RAG, config ต่างๆ (baseline vs optimized)
 
@@ -73,4 +76,4 @@
 - เพิ่ม `GET /documents/{id}/file` สำหรับเปิดอ่านไฟล์ใน browser
 - `get_optional_user` dependency ใน dependencies.py
 
-*อัปเดต: 2026-03-15*
+*อัปเดต: 2026-03-25*

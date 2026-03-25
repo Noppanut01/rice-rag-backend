@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -176,6 +177,38 @@ class RAGService:
             "area_rai": area_rai,
             "context": context,
         })
+
+    def generate_prompt_suggestions(self) -> list[dict]:
+        query = "การปลูกข้าว การดูแลรักษา ปุ๋ย โรคและแมลง การจัดการน้ำ การเก็บเกี่ยว"
+        docs = self._search(COLLECTIONS, query)
+        context = "\n\n".join([doc.page_content for doc in docs])
+
+        prompt = PromptTemplate(
+            template=(
+                "จากเนื้อหาต่อไปนี้ สร้างคำถามที่มีประโยชน์สำหรับเกษตรกรผู้ปลูกข้าว 5 ข้อ\n"
+                "แต่ละข้อมี title (ชื่อสั้นๆ) และ content (คำถามเต็ม)\n"
+                "ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น ห้ามมี markdown\n\n"
+                "เนื้อหา:\n{context}\n\n"
+                'ตัวอย่าง output: [{{"title": "การใส่ปุ๋ย", "content": "ควรใส่ปุ๋ยข้าวหอมมะลิตอนไหนและใช้ปุ๋ยชนิดใด?"}}, ...]\n\n'
+                "JSON:"
+            ),
+            input_variables=["context"],
+        )
+        llm_creative = OllamaLLM(
+            model=settings.OLLAMA_LLM_MODEL,
+            base_url=settings.OLLAMA_BASE_URL,
+            temperature=0.7,
+        )
+        raw = (prompt | llm_creative).invoke({"context": context}).strip()
+
+        try:
+            match = re.search(r'\[.*\]', raw, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+                return [r for r in result if isinstance(r, dict) and "title" in r and "content" in r]
+        except Exception:
+            pass
+        return []
 
     def ask_question_no_rag(self, question: str) -> dict:
         start = time.time()

@@ -310,6 +310,27 @@ files: File[]   (รองรับ .pdf .txt .docx, ส่งได้หลา
 
 ---
 
+## POST /prompts/generate
+
+ให้ LLM สร้างตัวอย่างคำถามจากเอกสารในระบบ — ต้องเป็น admin
+
+ดึง chunks จากทุก collection แล้วให้ LLM generate คำถาม 5 ข้อ (temperature=0.7)
+
+**Response 200**
+```json
+[
+  {
+    "title": "string",
+    "content": "string"
+  }
+]
+```
+
+**Error**
+- `403` — ไม่ใช่ admin
+
+---
+
 ## DELETE /prompts/{template_id}
 
 ลบ prompt template — ต้องเป็น admin
@@ -355,6 +376,7 @@ files: File[]   (รองรับ .pdf .txt .docx, ส่งได้หลา
 | DELETE /plans/{id} | ❌ | ✅ | ✅ |
 | GET /prompts/ | ✅ | ✅ | ✅ |
 | POST /prompts/ | ❌ | ❌ | ✅ |
+| POST /prompts/generate | ❌ | ❌ | ✅ |
 | DELETE /prompts/{id} | ❌ | ❌ | ✅ |
 | GET /admin/faq | ❌ | ❌ | ✅ |
 
