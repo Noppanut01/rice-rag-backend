@@ -15,6 +15,7 @@ class PlantingPlan(Base):
     start_date = Column(Date, nullable=False)
     area_rai = Column(Float, nullable=False)
     plot_name = Column(String, nullable=True)
+    planting_method = Column(String, nullable=False, default="transplant")
     created_at = Column(DateTime, server_default=func.now())
 
 

@@ -8,27 +8,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.dependencies import get_db, require_admin
 from app.models.document import Document
+from app.models.variety import RiceVariety
 from app.schemas.document import DocumentResponse
-from app.services.rag_service import COLLECTIONS, rag_service
+from app.services.rag_service import rag_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-
-COLLECTION_LABELS = {
-    "jasmine": "ข้าวหอมมะลิ",
-    "rd43": "ข้าว RD43",
-    "kk15": "ข้าวกข 15",
-    "pathumthani": "ข้าวปทุมธานี",
-    "general": "ทั่วไป",
-}
 
 
 @router.get("/collections")
 def list_collections(db: Session = Depends(get_db)):
-    rows = db.query(Document.chroma_collection).distinct().all()
-    return [
-        {"value": row[0], "label": COLLECTION_LABELS.get(row[0], row[0])}
-        for row in rows
-    ]
+    varieties = db.query(RiceVariety).all()
+    result = [{"value": v.collection_name, "label": v.name} for v in varieties]
+    result.append({"value": "general", "label": "ทั่วไป"})
+    return result
 
 
 @router.get("/", response_model=list[DocumentResponse])
@@ -52,8 +44,9 @@ def upload(
     db: Session = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    if collection not in COLLECTIONS:
-        raise HTTPException(status_code=400, detail=f"collection ต้องเป็นหนึ่งใน {COLLECTIONS}")
+    valid_collections = {v.collection_name for v in db.query(RiceVariety).all()} | {"general"}
+    if collection not in valid_collections:
+        raise HTTPException(status_code=400, detail=f"ไม่พบ collection '{collection}'")
 
     results = []
     for file in files:
@@ -103,11 +96,10 @@ def get_file(id: str, db: Session = Depends(get_db)):
         ".txt": "text/plain",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
-    media_type = media_types.get(suffix, "application/octet-stream")
     return FileResponse(
         path=str(file_path),
         filename=str(document.filename),
-        media_type=media_type,
+        media_type=media_types.get(suffix, "application/octet-stream"),
     )
 
 

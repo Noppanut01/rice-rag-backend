@@ -11,15 +11,6 @@ from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from app.core.config import settings
 
-COLLECTIONS = ["jasmine", "rd43", "kk15", "pathumthani", "general"]
-
-VARIETY_COLLECTION_MAP = {
-    "jasmine": "jasmine",
-    "rd43": "rd43",
-    "kk15": "kk15",
-    "pathumthani": "pathumthani",
-}
-
 
 class RAGService:
     def __init__(self):
@@ -27,14 +18,7 @@ class RAGService:
             model=settings.OLLAMA_EMBEDDING_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
         )
-        self.vectorstores = {
-            name: Chroma(
-                collection_name=name,
-                embedding_function=self.embeddings,
-                persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
-            )
-            for name in COLLECTIONS
-        }
+        self.vectorstores: dict[str, Chroma] = {}
         self.llm = OllamaLLM(
             model=settings.OLLAMA_LLM_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
@@ -44,6 +28,15 @@ class RAGService:
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
         )
+
+    def load_collections(self, names: list[str]):
+        for name in names:
+            if name not in self.vectorstores:
+                self.vectorstores[name] = Chroma(
+                    collection_name=name,
+                    embedding_function=self.embeddings,
+                    persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
+                )
 
     def _search(self, collections: list[str], question: str) -> list:
         all_docs = []
@@ -81,26 +74,27 @@ class RAGService:
 
         docs = loader.load()
         chunks = self.splitter.split_documents(docs)
-        vs = self.vectorstores.get(collection_name)
-        if vs is None:
-            vs = Chroma(
+        if collection_name not in self.vectorstores:
+            self.vectorstores[collection_name] = Chroma(
                 collection_name=collection_name,
                 embedding_function=self.embeddings,
                 persist_directory=settings.CHROMA_PERSIST_DIRECTORY,
             )
-            self.vectorstores[collection_name] = vs
-        vs.add_documents(chunks)
+        self.vectorstores[collection_name].add_documents(chunks)
         return collection_name
 
     def ask_question(self, question: str, collection: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
 
-        if collection and collection in COLLECTIONS:
-            docs = self._search([collection, "general"], question)
+        all_collections = list(self.vectorstores.keys())
+        if collection and collection in self.vectorstores:
+            search_cols = list({collection, "general"} & set(all_collections))
         else:
-            docs = self._search(COLLECTIONS, question)
+            search_cols = all_collections
 
+        docs = self._search(search_cols, question)
         context = "\n\n".join([doc.page_content for doc in docs])
+
         seen_sources = set()
         sources = []
         for doc in docs:
@@ -109,27 +103,17 @@ class RAGService:
                 seen_sources.add(src)
                 sources.append(src)
 
-        history_text = ""
-        if history:
-            lines = []
-            for h in history[-6:]:  # เก็บแค่ 3 รอบล่าสุด
-                role = "ผู้ใช้" if h["role"] == "user" else "ผู้ช่วย"
-                lines.append(f"{role}: {h['content']}")
-            history_text = "\n".join(lines) + "\n\n"
-
         prompt = PromptTemplate(
             template=(
-                "คุณเป็นผู้เชี่ยวชาญด้านการปลูกข้าว เชี่ยวชาญเป็นพิเศษใน 4 พันธุ์ ได้แก่ "
-                "ข้าวหอมมะลิ, ข้าว RD43, ข้าวกข 15 และข้าวปทุมธานี ตอบเป็นภาษาไทย\n"
-                "หากมีข้อมูลอ้างอิงด้านล่าง ให้ใช้ข้อมูลนั้นประกอบการตอบ\n"
-                "หากไม่มีข้อมูลด้านล่าง ให้บอกว่าไม่มีข้อมูลเรื่องนี้ในระบบและไม่สามารถตอบได้\n\n"
+                "ใช้ข้อมูลด้านล่างตอบคำถาม ถ้าไม่มีข้อมูลให้บอกว่าไม่ทราบ\n"
+                "ตอบเป็นภาษาไทย ไม่เกิน 5 ประโยค\n\n"
                 "ข้อมูล:\n{context}\n\n"
-                "{history}คำถาม: {question}\n\n"
+                "คำถาม: {question}\n"
                 "คำตอบ:"
             ),
-            input_variables=["context", "history", "question"],
+            input_variables=["context", "question"],
         )
-        answer = (prompt | self.llm).invoke({"context": context, "history": history_text, "question": question})
+        answer = (prompt | self.llm).invoke({"context": context, "question": question})
         answer = re.sub(r'\*+', '', answer).strip()
 
         return {
@@ -143,39 +127,9 @@ class RAGService:
             "response_time_ms": round((time.time() - start) * 1000),
         }
 
-    def generate_plan_from_rag(self, variety_id: str, variety_name: str, start_date, area_rai: float) -> str:
-        query = f"แผนการปลูกและดูแลรักษาข้าว{variety_name} ขั้นตอนการดูแล ระยะการเจริญเติบโต การใส่ปุ๋ย การจัดการน้ำ"
-        collection = VARIETY_COLLECTION_MAP.get(variety_id, "general")
-        docs = self._search([collection, "general"], query)
-        context = "\n\n".join([doc.page_content for doc in docs])
-
-        prompt = PromptTemplate(
-            template=(
-                "จากข้อมูลต่อไปนี้ สร้างแผนการปลูกข้าว{variety_name} เริ่มวันที่ {start_date} พื้นที่ {area_rai} ไร่\n\n"
-                "ข้อมูล:\n{context}\n\n"
-                "ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกจาก JSON ห้ามมี markdown\n"
-                "ตัวอย่าง output ที่ถูกต้อง:\n"
-                '{{"tasks": [{{"day": 1, "stage": "ระยะต้นกล้า", "task_name": "เตรียมดิน", "description": "ไถคราดและปรับระดับดิน"}}, {{"day": 15, "stage": "ระยะแตกกอ", "task_name": "ใส่ปุ๋ย", "description": "ปุ๋ย 16-20-0 อัตรา 25 กก./ไร่"}}]}}\n\n'
-                "JSON:"
-            ),
-            input_variables=["variety_name", "start_date", "area_rai", "context"],
-        )
-        llm_zero_temp = OllamaLLM(
-            model=settings.OLLAMA_LLM_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=0,
-        )
-        chain = prompt | llm_zero_temp
-        return chain.invoke({
-            "variety_name": variety_name,
-            "start_date": str(start_date),
-            "area_rai": area_rai,
-            "context": context,
-        })
-
     def generate_prompt_suggestions(self) -> list[dict]:
         query = "การปลูกข้าว การดูแลรักษา ปุ๋ย โรคและแมลง การจัดการน้ำ การเก็บเกี่ยว"
-        docs = self._search(COLLECTIONS, query)
+        docs = self._search(list(self.vectorstores.keys()), query)
         context = "\n\n".join([doc.page_content for doc in docs])
 
         prompt = PromptTemplate(
@@ -210,14 +164,13 @@ class RAGService:
 
         prompt = PromptTemplate(
             template=(
-                "ตอบคำถามต่อไปนี้จากความรู้ทั่วไปของคุณ\n\n"
+                "ตอบคำถามต่อไปนี้จากความรู้ทั่วไปของคุณ ตอบเป็นภาษาไทย\n\n"
                 "คำถาม: {question}\n\n"
                 "คำตอบ:"
             ),
             input_variables=["question"],
         )
-        chain = prompt | self.llm
-        answer = chain.invoke({"question": question})
+        answer = (prompt | self.llm).invoke({"question": question})
 
         return {
             "answer": answer,
