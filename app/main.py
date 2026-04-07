@@ -35,56 +35,11 @@ app.include_router(prompts.router)
 app.include_router(varieties.router)
 app.include_router(admin.router)
 
-SEED_VARIETIES = [
-    {
-        "name": "ข้าวขาวดอกมะลิ 105",
-        "collection_name": "jasmine",
-        "harvest_age_days": 120,
-        "is_photoperiod_sensitive": True,
-        "supported_methods": ["transplant", "broadcast"],
-        "description": "ข้าวจ้าวไวต่อช่วงแสง กลิ่นหอม เมล็ดเรียวยาว ปลูกได้เฉพาะนาปี",
-        "reference_url": "https://www.ricethailand.go.th",
-    },
-    {
-        "name": "ข้าว กข43",
-        "collection_name": "rd43",
-        "harvest_age_days": 95,
-        "is_photoperiod_sensitive": False,
-        "supported_methods": ["transplant", "broadcast", "throw"],
-        "description": "ข้าวเจ้าไม่ไวแสง ดัชนีน้ำตาลต่ำ อายุสั้น ปลูกได้ตลอดปี",
-        "reference_url": "https://www.ricethailand.go.th",
-    },
-    {
-        "name": "ข้าว กข15",
-        "collection_name": "kk15",
-        "harvest_age_days": 100,
-        "is_photoperiod_sensitive": True,
-        "supported_methods": ["transplant", "broadcast"],
-        "description": "ข้าวหอมมะลิไวแสง เก็บเกี่ยวเร็วกว่าหอมมะลิ 105 ประมาณ 20 วัน",
-        "reference_url": "https://www.ricethailand.go.th",
-    },
-    {
-        "name": "ข้าวปทุมธานี 1",
-        "collection_name": "pathumthani",
-        "harvest_age_days": 120,
-        "is_photoperiod_sensitive": False,
-        "supported_methods": ["transplant", "broadcast", "throw"],
-        "description": "ข้าวเจ้าหอมไม่ไวแสง ปลูกได้ทั้งนาปีและนาปรัง",
-        "reference_url": "https://www.ricethailand.go.th",
-    },
-]
-
-
 @app.on_event("startup")
 def startup():
     from app.models.variety import RiceVariety
     db = SessionLocal()
     try:
-        if db.query(RiceVariety).count() == 0:
-            for v in SEED_VARIETIES:
-                db.add(RiceVariety(**v))
-            db.commit()
-
         varieties = db.query(RiceVariety).all()
         collection_names = [v.collection_name for v in varieties] + ["general"]
         rag_service.load_collections(list(set(collection_names)))

@@ -7,10 +7,17 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
 
+    # LLM Provider: "ollama" หรือ "gemini"
+    LLM_PROVIDER: str = "ollama"
+
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_LLM_MODEL: str = "gemma3:4b"
     OLLAMA_EMBEDDING_MODEL: str = "bge-m3"
+
+    # Gemini
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
     # RAG config (เปลี่ยนเพื่อทำ experiment)
     CHUNK_SIZE: int = 500

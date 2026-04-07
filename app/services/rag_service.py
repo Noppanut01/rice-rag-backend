@@ -7,6 +7,7 @@ from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from app.core.config import settings
@@ -19,11 +20,18 @@ class RAGService:
             base_url=settings.OLLAMA_BASE_URL,
         )
         self.vectorstores: dict[str, Chroma] = {}
-        self.llm = OllamaLLM(
-            model=settings.OLLAMA_LLM_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=settings.LLM_TEMPERATURE,
-        )
+        if settings.LLM_PROVIDER == "gemini":
+            self.llm = ChatGoogleGenerativeAI(
+                model=settings.GEMINI_MODEL,
+                google_api_key=settings.GEMINI_API_KEY,
+                temperature=settings.LLM_TEMPERATURE,
+            )
+        else:
+            self.llm = OllamaLLM(
+                model=settings.OLLAMA_LLM_MODEL,
+                base_url=settings.OLLAMA_BASE_URL,
+                temperature=settings.LLM_TEMPERATURE,
+            )
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
@@ -114,12 +122,12 @@ class RAGService:
             input_variables=["context", "question"],
         )
         answer = (prompt | self.llm).invoke({"context": context, "question": question})
-        answer = re.sub(r'\*+', '', answer).strip()
+        answer = re.sub(r'\*+', '', str(answer.content) if hasattr(answer, 'content') else answer).strip()
 
         return {
             "answer": answer,
             "sources": sources,
-            "model_used": settings.OLLAMA_LLM_MODEL,
+            "model_used": settings.GEMINI_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_LLM_MODEL,
             "embedding_model": settings.OLLAMA_EMBEDDING_MODEL,
             "retrieval_strategy": settings.RETRIEVAL_STRATEGY,
             "chunk_size": settings.CHUNK_SIZE,
@@ -143,12 +151,21 @@ class RAGService:
             ),
             input_variables=["context"],
         )
-        llm_creative = OllamaLLM(
-            model=settings.OLLAMA_LLM_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=0.7,
-        )
-        raw = (prompt | llm_creative).invoke({"context": context}).strip()
+        if settings.LLM_PROVIDER == "gemini":
+            llm_creative = ChatGoogleGenerativeAI(
+                model=settings.GEMINI_MODEL,
+                google_api_key=settings.GEMINI_API_KEY,
+                temperature=0.7,
+            )
+        else:
+            llm_creative = OllamaLLM(
+                model=settings.OLLAMA_LLM_MODEL,
+                base_url=settings.OLLAMA_BASE_URL,
+                temperature=0.7,
+            )
+        raw = (prompt | llm_creative).invoke({"context": context})
+        raw = str(raw.content) if hasattr(raw, 'content') else raw
+        raw = raw.strip()
 
         try:
             match = re.search(r'\[.*\]', raw, re.DOTALL)
@@ -171,11 +188,12 @@ class RAGService:
             input_variables=["question"],
         )
         answer = (prompt | self.llm).invoke({"question": question})
+        answer = str(answer.content) if hasattr(answer, 'content') else answer
 
         return {
             "answer": answer,
             "sources": [],
-            "model_used": settings.OLLAMA_LLM_MODEL,
+            "model_used": settings.GEMINI_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_LLM_MODEL,
             "embedding_model": "",
             "retrieval_strategy": "none",
             "chunk_size": 0,
