@@ -1,16 +1,26 @@
 from datetime import date, timedelta
 
 SOIL_FERT1_FORMULA: dict[str, str] = {
-    "clay":  "16-20-0",
-    "loam":  "16-16-8",
+    "clay": "16-20-0",
+    "loam": "16-16-8",
     "sandy": "16-16-8",
 }
 
+# ดินทรายชะล้างปุ๋ยง่าย → ใส่เพิ่ม, ดินเหนียวอุ้มธาตุอาหารดี → มาตรฐาน
+SOIL_FERT_MULTIPLIER: dict[str, float] = {
+    "clay": 1.0,
+    "loam": 1.1,
+    "sandy": 1.2,
+}
+
 # วันปลูกจริงตามวิธีปลูก (offset จาก Day 0 = start_date)
+# broadcast: ทำเทือก Day 7 + หว่าน Day 10
+# throw:     ทำเทือก Day 12 + โยน Day 15 (กล้าถาด 15 วัน)
+# transplant:ทำเทือก Day 12 + ขังน้ำ Day 13-24 + ปักดำ Day 25 (กล้าอายุ 25 วัน)
 PLANTING_DAY: dict[str, int] = {
-    "transplant": 21,   # ตากดิน 14 วัน + อายุกล้า 21 วัน
-    "broadcast":  10,   # ตากดิน 7 วัน + เตรียมเมล็ดงอก 3 วัน
-    "throw":      15,   # กล้าถาดอายุ 15 วัน
+    "transplant": 25,
+    "broadcast": 10,
+    "throw": 15,
 }
 
 
@@ -32,72 +42,185 @@ def _build_tasks(
 ) -> list[tuple]:
     resolved_f1 = fert1_formula or SOIL_FERT1_FORMULA.get(soil_type, "16-20-0")
     resolved_f2 = "46-0-0"
+    multiplier = SOIL_FERT_MULTIPLIER.get(soil_type, 1.0)
 
-    f1 = round(fert1_rate * area_rai, 1)
-    f2 = round(fert2_rate * area_rai, 1)
-    fert1_desc = f"ปุ๋ยสูตร {resolved_f1} อัตรา {fert1_rate} กก./ไร่ รวม {f1} กก." + (f" — {fert1_note}" if fert1_note else "")
-    fert2_desc = f"ปุ๋ยสูตร {resolved_f2} อัตรา {fert2_rate} กก./ไร่ รวม {f2} กก." + (f" — {fert2_note}" if fert2_note else "")
+    adj_f1_rate = round(fert1_rate * multiplier, 1)
+    adj_f2_rate = round(fert2_rate * multiplier, 1)
+    f1 = round(adj_f1_rate * area_rai, 1)
+    f2 = round(adj_f2_rate * area_rai, 1)
+    fert1_desc = f"ปุ๋ยสูตร {resolved_f1} อัตรา {adj_f1_rate} กก./ไร่ รวม {f1} กก." + (
+        f" — {fert1_note}" if fert1_note else ""
+    )
+    fert2_desc = f"ปุ๋ยสูตร {resolved_f2} อัตรา {adj_f2_rate} กก./ไร่ รวม {f2} กก." + (
+        f" — {fert2_note}" if fert2_note else ""
+    )
 
-    p        = PLANTING_DAY[planting_method]   # Day ที่ลงแปลง (absolute จาก Day 0)
-    mid_prep = 7                               # ไถแปรวันที่ 7 เสมอ (ตากดินอย่างน้อย 7 วัน)
-    water_day = p - 3                          # 3 วันก่อนลงแปลง
+    p = PLANTING_DAY[planting_method]  # Day ที่ลงแปลง (absolute จาก Day 0)
 
-    # --- งานเตรียมดิน (Day 0 = start_date) ---
-    prep_tasks: list[tuple] = [
-        (0,        "เตรียมดิน", "ไถดะ",  "ไถพลิกดินครั้งแรก ตากดินไว้ 7-14 วัน เพื่อกำจัดวัชพืชและระบายสารพิษ"),
-        (mid_prep, "เตรียมดิน", "ไถแปร", "ไถครั้งที่สอง ย่อยดินและคลุกเคล้าฟางให้สลายตัว"),
+    # ===== เตรียมดิน (7-5-3 Logic) =====
+    # Day 0: ไถดะ → Day 7: ไถแปร → Day 12: ทำเทือก (ยกเว้น broadcast ทำเทือก Day 7)
+    tasks: list[tuple] = [
+        (
+            0,
+            "เตรียมดิน",
+            "ไถดะ",
+            "ไถพลิกดินครั้งแรก ตากดินไว้ 7 วัน เพื่อกำจัดวัชพืช เชื้อโรค และระบายก๊าซพิษออกจากดิน",
+        ),
+        (
+            7,
+            "เตรียมดิน",
+            "ไถแปร",
+            "ไถย่อยดินครั้งที่สอง คลุกเคล้าฟางข้าวและอินทรียวัตถุให้สลายตัว เตรียมพื้นดินสำหรับทำเทือก",
+        ),
     ]
 
-    # --- งาน 3 วันก่อนลงแปลง (แตกต่างตามวิธีปลูก) ---
+    # ===== ทำเทือก + เตรียมก่อนปลูก =====
     if planting_method == "broadcast":
-        water_prep_tasks = [
-            (water_day, "เตรียมดิน", "ทำเทือก",              "ปรับระดับดินให้เรียบกริบ เพื่อให้น้ำท่วมสม่ำเสมอทั้งแปลง"),
-            (water_day, "จัดการน้ำ", "เตรียมดินสำหรับหว่าน", "ระบายน้ำออกให้ดินแฉะพอดี (ไม่ให้มีน้ำขัง) เพื่อเตรียมหว่านเมล็ดงอก"),
+        # ทำเทือก Day 7 (เดียวกับไถแปร) เพื่อให้หว่านทัน Day 10
+        tasks += [
+            (
+                7,
+                "เตรียมดิน",
+                "ทำเทือก",
+                "ปั่นดินให้ละเอียดเป็นเลน ปรับระดับดินให้เรียบสม่ำเสมอ เพื่อให้น้ำท่วมถึงทุกพื้นที่และเมล็ดงอกกระจายทั่วแปลง",
+            ),
+            (
+                7,
+                "จัดการน้ำ",
+                "เตรียมดินสำหรับหว่าน",
+                "ระบายน้ำออกให้ดินแฉะพอดี (ไม่ขังน้ำ) เพื่อให้เมล็ดงอกยึดติดดินได้หลังหว่าน",
+            ),
         ]
-    elif planting_method == "transplant":
-        water_prep_tasks = [
-            (water_day, "เตรียมดิน", "ทำเทือก",      "คราดดินให้ละเอียดเป็นเทือก ปรับระดับให้สม่ำเสมอ"),
-            (water_day, "จัดการน้ำ", "ขังน้ำรอปักดำ", "ปล่อยน้ำเข้าแปลง ขังระดับ 5-10 ซม. เตรียมพร้อมรับต้นกล้า"),
-        ]
-    else:  # throw
-        water_prep_tasks = [
-            (water_day, "เตรียมดิน", "ทำเทือก",    "คราดดินให้ละเอียด ปรับระดับดินให้สม่ำเสมอ"),
-            (water_day, "จัดการน้ำ", "ลดระดับน้ำ", "ลดระดับน้ำให้เหลือคลุมผิวดินเล็กน้อย เพื่อให้ต้นกล้าที่โยนลงยึดดินได้"),
-        ]
+    else:
+        # throw และ transplant: ทำเทือก Day 12
+        tasks.append(
+            (
+                12,
+                "เตรียมดิน",
+                "ทำเทือก",
+                "ปั่นดินให้ละเอียดเป็นเลน ปรับระดับดินให้สม่ำเสมอ ช่วยลดการสูญเสียน้ำและควบคุมวัชพืชในแปลง",
+            )
+        )
+        if planting_method == "transplant":
+            # Day 13-24: ขังน้ำตื้นรอกล้า (คุมวัชพืช + รอกล้าครบ 25 วัน)
+            tasks.append(
+                (
+                    13,
+                    "จัดการน้ำ",
+                    "ขังน้ำตื้นรอกล้า",
+                    "ปล่อยน้ำเข้าแปลง ขังระดับ 3-5 ซม. ตั้งแต่วันที่ 13 จนถึงวันปักดำ (วันที่ 24) เพื่อควบคุมวัชพืชและเตรียมดินรับต้นกล้า",
+                )
+            )
+        else:  # throw
+            tasks.append(
+                (
+                    12,
+                    "จัดการน้ำ",
+                    "ลดระดับน้ำก่อนโยนกล้า",
+                    "ลดระดับน้ำให้เหลือคลุมผิวดินเล็กน้อย (1-2 ซม.) เพื่อให้รากกล้าที่โยนลงยึดดินได้ก่อนเพิ่มระดับน้ำ",
+                )
+            )
 
-    # --- งานเพาะกล้า/เตรียมเมล็ด (Day 0) + งานลงแปลง (Day p) ---
+    # ===== เพาะกล้า/เตรียมเมล็ด (Day 0) + งานรายวันดูแลกล้า (Day 1) + ลงแปลง (Day p) =====
     if planting_method == "transplant":
-        method_tasks = [
-            (0, "เตรียมกล้า", "เพาะกล้า",     "แช่เมล็ดพันธุ์ 24 ชม. หุ้มเมล็ด 30-48 ชม. เพาะในแปลงกล้า อัตรา 5-7 กก./ไร่"),
-            (p, "ปักดำ",      "ปักดำต้นกล้า", "ปักดำต้นกล้าอายุ 21 วัน ระยะ 20×20 ซม. 3-5 ต้นต่อกอ"),
+        tasks += [
+            (
+                0,
+                "เตรียมกล้า",
+                "เพาะกล้า",
+                "แช่เมล็ดพันธุ์ 24 ชม. หุ้มเมล็ดในกระสอบ 30-48 ชม. จนงอกขนาดตุ่มตา แล้วหว่านในแปลงกล้า อัตรา 5-7 กก./ไร่",
+            ),
+            (
+                1,
+                "ดูแลกล้า",
+                "ดูแลแปลงกล้า (รายวัน)",
+                "รดน้ำเช้า-เย็นทุกวัน และตรวจเช็คความแข็งแรงของต้นกล้าจนกว่าจะถึงวันปักดำ",
+            ),
+            (
+                p,
+                "ปักดำ",
+                "ปักดำต้นกล้า",
+                "ปักดำต้นกล้าอายุ 25 วัน ระยะ 20×20 ซม. 3-5 ต้นต่อกอ ให้รากจมดินประมาณ 2-3 ซม.",
+            ),
         ]
     elif planting_method == "broadcast":
         seed = round(17.0 * area_rai, 1)
-        method_tasks = [
-            (0, "เตรียมเมล็ด", "แช่เมล็ดพันธุ์", f"แช่เมล็ด 24 ชม. หุ้มในกระสอบ 30-48 ชม. ให้งอกขนาดตุ่มตา รวม {seed} กก."),
-            (p, "หว่าน",       "หว่านข้าวงอก",   f"หว่านเมล็ดงอกอัตรา 15-20 กก./ไร่ รวม {seed} กก. ควรหว่านตอนบ่ายหรือเย็น"),
+        tasks += [
+            (
+                0,
+                "เตรียมเมล็ด",
+                "แช่เมล็ดพันธุ์",
+                f"แช่เมล็ด 24 ชม. หุ้มในกระสอบ 30-48 ชม. ให้งอกขนาดตุ่มตา รวม {seed} กก.",
+            ),
+            (
+                p,
+                "หว่าน",
+                "หว่านข้าวงอก",
+                f"หว่านเมล็ดงอกอัตรา 15-20 กก./ไร่ รวม {seed} กก. ควรหว่านตอนบ่ายหรือเย็นเพื่อลดความเสียหายจากแสงแดด",
+            ),
         ]
     else:  # throw
         trays = round(50 * area_rai)
-        seed  = round(6.0 * area_rai, 1)
-        method_tasks = [
-            (0, "เตรียมกล้า", "เพาะกล้าในถาด",    f"เพาะกล้าในถาดพลาสติกขนาด 561 หลุม จำนวน {trays} ถาด เมล็ด {seed} กก. รดน้ำทุกวัน"),
-            (p, "โยนกล้า",    "โยนต้นกล้าลงแปลง", "โยนกล้าอายุ 15 วัน ประมาณ 50 ถาด/ไร่ ลดน้ำให้เหลือคลุมผิวดินก่อนโยน"),
+        seed = round(6.0 * area_rai, 1)
+        tasks += [
+            (
+                0,
+                "เตรียมกล้า",
+                "เพาะกล้าในถาด",
+                f"เพาะกล้าในถาดพลาสติกขนาด 561 หลุม จำนวน {trays} ถาด เมล็ด {seed} กก. รดน้ำทุกวันจนกล้าแข็งแรง",
+            ),
+            (
+                1,
+                "ดูแลกล้า",
+                "ดูแลแปลงกล้า (รายวัน)",
+                "รดน้ำเช้า-เย็นทุกวัน และตรวจเช็คความแข็งแรงของต้นกล้าจนกว่าจะถึงวันโยนกล้า",
+            ),
+            (
+                p,
+                "โยนกล้า",
+                "โยนต้นกล้าลงแปลง",
+                f"โยนกล้าอายุ 15 วัน จำนวน {trays} ถาด โยนให้กระจายสม่ำเสมอทั่วแปลงที่มีน้ำระดับต่ำ",
+            ),
         ]
 
-    # --- งานหลังปลูก (ใช้ absolute day ที่ generate_plan คำนวณมาแล้ว) ---
-    post_tasks = [
-        (fert1_day,       "ระยะแตกกอ",        "ใส่ปุ๋ยครั้งที่ 1",       fert1_desc),
-        (fert2_day,       "ระยะกำเนิดช่อดอก", "ใส่ปุ๋ยครั้งที่ 2",       fert2_desc),
-        (heading_day - 7, "จัดการน้ำ",         "รักษาระดับน้ำช่วงวิกฤต", "เพิ่มระดับน้ำให้สูง 5-10 ซม. เพื่อรองรับการสร้างรวง ห้ามขาดน้ำเด็ดขาดในช่วงนี้"),
-        (heading_day,     "ระยะออกรวง",        "ตรวจสอบรวงข้าว",          "ระยะออกรวง: สังเกตการออกดอกและรักษาระดับน้ำให้คงที่เพื่อการสร้างเมล็ดที่สมบูรณ์"),
-        (drain_day,       "จัดการน้ำ",         "ระบายน้ำออก",             "ระบายน้ำออกจากแปลง ทำก่อนเก็บเกี่ยว 12 วัน เพื่อเร่งการสุกแก่และให้ดินแห้งรับรถเกี่ยว"),
-        (harvest_day,     "เก็บเกี่ยว",        "เก็บเกี่ยวผลผลิต",        "เก็บเกี่ยวเมื่อเมล็ดสุก 80% ของรวง"),
+    # ===== งานหลังปลูก + ระยะสุกแก่ =====
+    tasks += [
+        (
+            p + 7,
+            "จัดการน้ำ",
+            "จัดการน้ำหลังปลูก",
+            "รักษาระดับน้ำ 3-5 ซม. เพื่อควบคุมวัชพืชและช่วยให้ข้าวตั้งตัว ห้ามปล่อยแปลงแห้งใน 2 สัปดาห์แรกหลังปลูก",
+        ),
+        (fert1_day, "ระยะแตกกอ", "ใส่ปุ๋ยครั้งที่ 1", fert1_desc),
+        (fert2_day, "ระยะกำเนิดช่อดอก", "ใส่ปุ๋ยครั้งที่ 2", fert2_desc),
+        (
+            heading_day,
+            "ระยะออกรวง",
+            "ตรวจสอบรวงข้าว",
+            "ระยะออกรวง: สังเกตการออกดอกและรักษาระดับน้ำให้คงที่เพื่อสะสมแป้งและสร้างเมล็ดที่สมบูรณ์",
+        ),
+        (
+            heading_day,
+            "จัดการน้ำ",
+            "รักษาระดับน้ำเพื่อสะสมแป้ง",
+            "ขังน้ำระดับ 5-10 ซม. ตลอด 18 วันหลังออกรวง เพื่อส่งเสริมการสร้างน้ำนมและสะสมแป้งในเมล็ด ห้ามปล่อยแปลงแห้ง",
+        ),
+        (
+            drain_day,
+            "จัดการน้ำ",
+            "ระบายน้ำออกก่อนเกี่ยว",
+            "ระบายน้ำออกจากแปลง 12 วันก่อนเก็บเกี่ยว เพื่อให้เมล็ดสุกสม่ำเสมอ ดินแห้งแข็งพอรับน้ำหนักรถเกี่ยว",
+        ),
+        (
+            harvest_day,
+            "เก็บเกี่ยว",
+            "เก็บเกี่ยวผลผลิต",
+            "เก็บเกี่ยวเมื่อเมล็ดสุก 80% ของรวง ควรเกี่ยวในช่วงเช้าเพื่อลดการร่วงหล่นของเมล็ด",
+        ),
     ]
 
-    all_tasks = prep_tasks + water_prep_tasks + method_tasks + post_tasks
-    all_tasks.sort(key=lambda x: x[0])
-    return all_tasks
+    tasks.sort(key=lambda x: x[0])
+    return tasks
 
 
 def _calculate_resources(
@@ -109,22 +232,23 @@ def _calculate_resources(
     fert1_formula: str = "",
 ) -> dict:
     resolved_f1 = fert1_formula or SOIL_FERT1_FORMULA.get(soil_type, "16-20-0")
+    multiplier = SOIL_FERT_MULTIPLIER.get(soil_type, 1.0)
 
     if planting_method == "broadcast":
-        seed  = round(17.0 * area_rai, 1)
+        seed = round(17.0 * area_rai, 1)
         trays = None
     elif planting_method == "throw":
-        seed  = round(6.0 * area_rai, 1)
+        seed = round(6.0 * area_rai, 1)
         trays = round(50 * area_rai)
     else:  # transplant
-        seed  = round(5.0 * area_rai, 1)
+        seed = round(5.0 * area_rai, 1)
         trays = None
 
     return {
         "seed_kg": seed,
-        "fertilizer1_kg": round(fert1_rate * area_rai, 1),
+        "fertilizer1_kg": round(fert1_rate * multiplier * area_rai, 1),
         "fertilizer1_formula": resolved_f1,
-        "fertilizer2_kg": round(fert2_rate * area_rai, 1),
+        "fertilizer2_kg": round(fert2_rate * multiplier * area_rai, 1),
         "fertilizer2_formula": "46-0-0",
         "seedling_trays": trays,
     }
@@ -146,9 +270,10 @@ class PlanService:
         fert1_formula: str = "",
         fert1_note: str = "",
         fert2_note: str = "",
-        heading_calendar_date: date | None = None,   # วันออกดอกตามปฏิทิน (ข้าวไวแสง) เช่น date(2026, 11, 20)
+        heading_calendar_date: date
+        | None = None,  # วันออกดอกตามปฏิทิน (ข้าวไวแสง) เช่น date(2026, 11, 20)
     ) -> tuple[list[dict], dict, date]:
-        p = PLANTING_DAY[planting_method]          # offset จาก Day 0 ถึงวันลงแปลง
+        p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
 
         # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
@@ -156,35 +281,60 @@ class PlanService:
             # ข้าวไวแสง: heading วันที่แน่นอนตามปฏิทิน
             # แปลงเป็น offset จากวันลงแปลง = (calendar_date - start_date).days - p
             heading_abs = (heading_calendar_date - start_date).days
-            g_heading   = heading_abs - p
-            g_panicle   = panicle_initiation_day if panicle_initiation_day is not None else g_heading - 30
-            g_harvest   = g_heading + 30          # เก็บเกี่ยวหลังออกดอก 30 วัน
+            g_heading = heading_abs - p
+            g_panicle = (
+                panicle_initiation_day
+                if panicle_initiation_day is not None
+                else g_heading - 30
+            )
+            g_harvest = g_heading + 30  # เก็บเกี่ยวหลังออกดอก 30 วัน
         else:
             # ข้าวไม่ไวแสง: คำนวณจาก harvest_age_days
-            g_harvest   = harvest_age_days
-            g_heading   = heading_day            if heading_day            is not None else harvest_age_days - 30
-            g_panicle   = panicle_initiation_day if panicle_initiation_day is not None else harvest_age_days - 60
+            g_harvest = harvest_age_days
+            g_heading = (
+                heading_day if heading_day is not None else harvest_age_days - 30
+            )
+            g_panicle = (
+                panicle_initiation_day
+                if panicle_initiation_day is not None
+                else harvest_age_days - 60
+            )
 
-        g_tillering = tillering_day if tillering_day is not None else round(g_harvest * 0.25)
+        g_tillering = (
+            tillering_day if tillering_day is not None else round(g_harvest * 0.25)
+        )
 
         # แปลงเป็น absolute day จาก start_date (Day 0) — บวก p ที่เดียว ไม่ซ้ำ
-        fert1_day_abs  = p + g_tillering
-        fert2_day_abs  = p + g_panicle
-        heading_abs    = p + g_heading
-        harvest_abs    = heading_abs + 30    # บังคับ 30 วันหลังออกรวงเสมอ
-        drain_abs      = harvest_abs - 12    # ระบายน้ำ 12 วันก่อนเก็บเกี่ยว (= 18 วันหลังออกรวง)
+        fert1_day_abs = p + g_tillering
+        fert2_day_abs = p + g_panicle
+        heading_abs = p + g_heading
+        harvest_abs = heading_abs + 30  # บังคับ 30 วันหลังออกรวงเสมอ
+        drain_abs = harvest_abs - 12  # ระบายน้ำ 12 วันก่อนเก็บเกี่ยว (= 18 วันหลังออกรวง)
 
         raw_tasks = _build_tasks(
-            planting_method, area_rai,
-            fert1_day_abs, fert2_day_abs, heading_abs, drain_abs, harvest_abs,
-            soil_type, fert1_rate, fert2_rate, fert1_formula, fert1_note, fert2_note,
+            planting_method,
+            area_rai,
+            fert1_day_abs,
+            fert2_day_abs,
+            heading_abs,
+            drain_abs,
+            harvest_abs,
+            soil_type,
+            fert1_rate,
+            fert2_rate,
+            fert1_formula,
+            fert1_note,
+            fert2_note,
         )
 
         # Re-base: งานแรกต้อง Day 0 เสมอ (safety net)
         if raw_tasks:
             min_day = min(t[0] for t in raw_tasks)
             if min_day != 0:
-                raw_tasks = [(day - min_day, stage, name, desc) for day, stage, name, desc in raw_tasks]
+                raw_tasks = [
+                    (day - min_day, stage, name, desc)
+                    for day, stage, name, desc in raw_tasks
+                ]
                 actual_planting_date = start_date + timedelta(days=p - min_day)
 
         tasks = [
@@ -198,8 +348,12 @@ class PlanService:
             for day, stage, task_name, desc in raw_tasks
         ]
         resources = _calculate_resources(
-            planting_method, area_rai, soil_type,
-            fert1_rate, fert2_rate, fert1_formula,
+            planting_method,
+            area_rai,
+            soil_type,
+            fert1_rate,
+            fert2_rate,
+            fert1_formula,
         )
         return tasks, resources, actual_planting_date
 
