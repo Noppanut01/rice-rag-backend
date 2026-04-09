@@ -15,18 +15,19 @@ bcrypt==4.0.1
 # ===== Request Handling =====
 python-multipart==0.0.20
 python-dotenv==1.0.1
-pydantic-settings==2.7.0
+pydantic-settings==2.13.1
 
-# ===== LangChain (fix version เพราะเปลี่ยนบ่อย) =====
-langchain==0.3.14
-langchain-core
-langchain-community==0.3.14
+# ===== LangChain =====
+langchain==0.3.28
+langchain-core==0.3.83
+langchain-community==0.3.31
 langchain-ollama==0.2.3
 langchain-chroma==0.2.1
+langchain-google-genai==2.1.12
 
 # ===== Document Loaders =====
 pypdf==5.1.0
 docx2txt==0.8
 
-# ===== Monitoring (สำหรับวัด RAM experiment) =====
+# ===== Monitoring =====
 psutil==6.1.1

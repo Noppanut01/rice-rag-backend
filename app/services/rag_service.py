@@ -7,7 +7,7 @@ from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from app.core.config import settings
@@ -15,10 +15,16 @@ from app.core.config import settings
 
 class RAGService:
     def __init__(self):
-        self.embeddings = OllamaEmbeddings(
-            model=settings.OLLAMA_EMBEDDING_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-        )
+        if settings.LLM_PROVIDER == "gemini":
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model=f"models/{settings.GEMINI_EMBEDDING_MODEL}",
+                google_api_key=settings.GEMINI_API_KEY,
+            )
+        else:
+            self.embeddings = OllamaEmbeddings(
+                model=settings.OLLAMA_EMBEDDING_MODEL,
+                base_url=settings.OLLAMA_BASE_URL,
+            )
         self.vectorstores: dict[str, Chroma] = {}
         if settings.LLM_PROVIDER == "gemini":
             self.llm = ChatGoogleGenerativeAI(
@@ -128,7 +134,7 @@ class RAGService:
             "answer": answer,
             "sources": sources,
             "model_used": settings.GEMINI_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_LLM_MODEL,
-            "embedding_model": settings.OLLAMA_EMBEDDING_MODEL,
+            "embedding_model": settings.GEMINI_EMBEDDING_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_EMBEDDING_MODEL,
             "retrieval_strategy": settings.RETRIEVAL_STRATEGY,
             "chunk_size": settings.CHUNK_SIZE,
             "chunks_retrieved": len(docs),
