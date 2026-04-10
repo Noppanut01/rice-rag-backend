@@ -8,6 +8,7 @@ class HistoryMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
+    plan_context: str | None = None
     collection: str | None = None
     history: list[HistoryMessage] = []
 

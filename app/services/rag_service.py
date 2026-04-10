@@ -8,36 +8,22 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from app.core.config import settings
 
 
 class RAGService:
     def __init__(self):
-        if settings.LLM_PROVIDER == "gemini":
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model=f"models/{settings.GEMINI_EMBEDDING_MODEL}",
-                google_api_key=settings.GEMINI_API_KEY,
-            )
-        else:
-            self.embeddings = OllamaEmbeddings(
-                model=settings.OLLAMA_EMBEDDING_MODEL,
-                base_url=settings.OLLAMA_BASE_URL,
-            )
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model=f"models/{settings.GEMINI_EMBEDDING_MODEL}",
+            google_api_key=settings.GEMINI_API_KEY,
+        )
         self.vectorstores: dict[str, Chroma] = {}
-        if settings.LLM_PROVIDER == "gemini":
-            self.llm = ChatGoogleGenerativeAI(
-                model=settings.GEMINI_MODEL,
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=settings.LLM_TEMPERATURE,
-            )
-        else:
-            self.llm = OllamaLLM(
-                model=settings.OLLAMA_LLM_MODEL,
-                base_url=settings.OLLAMA_BASE_URL,
-                temperature=settings.LLM_TEMPERATURE,
-            )
+        self.llm = ChatGoogleGenerativeAI(
+            model=settings.GEMINI_MODEL,
+            google_api_key=settings.GEMINI_API_KEY,
+            temperature=settings.LLM_TEMPERATURE,
+        )
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
@@ -97,7 +83,7 @@ class RAGService:
         self.vectorstores[collection_name].add_documents(chunks)
         return collection_name
 
-    def ask_question(self, question: str, collection: str | None = None, history: list[dict] | None = None) -> dict:
+    def ask_question(self, question: str, plan_context: str | None = None, collection: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
 
         all_collections = list(self.vectorstores.keys())
@@ -108,6 +94,8 @@ class RAGService:
 
         docs = self._search(search_cols, question)
         context = "\n\n".join([doc.page_content for doc in docs])
+        if plan_context:
+            context = f"{plan_context}\n\nเอกสารอ้างอิง:\n{context}"
 
         seen_sources = set()
         sources = []
@@ -133,8 +121,8 @@ class RAGService:
         return {
             "answer": answer,
             "sources": sources,
-            "model_used": settings.GEMINI_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_LLM_MODEL,
-            "embedding_model": settings.GEMINI_EMBEDDING_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_EMBEDDING_MODEL,
+            "model_used": settings.GEMINI_MODEL,
+            "embedding_model": settings.GEMINI_EMBEDDING_MODEL,
             "retrieval_strategy": settings.RETRIEVAL_STRATEGY,
             "chunk_size": settings.CHUNK_SIZE,
             "chunks_retrieved": len(docs),
@@ -157,18 +145,11 @@ class RAGService:
             ),
             input_variables=["context"],
         )
-        if settings.LLM_PROVIDER == "gemini":
-            llm_creative = ChatGoogleGenerativeAI(
-                model=settings.GEMINI_MODEL,
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=0.7,
-            )
-        else:
-            llm_creative = OllamaLLM(
-                model=settings.OLLAMA_LLM_MODEL,
-                base_url=settings.OLLAMA_BASE_URL,
-                temperature=0.7,
-            )
+        llm_creative = ChatGoogleGenerativeAI(
+            model=settings.GEMINI_MODEL,
+            google_api_key=settings.GEMINI_API_KEY,
+            temperature=0.7,
+        )
         raw = (prompt | llm_creative).invoke({"context": context})
         raw = str(raw.content) if hasattr(raw, 'content') else raw
         raw = raw.strip()
@@ -182,8 +163,11 @@ class RAGService:
             pass
         return []
 
-    def ask_question_no_rag(self, question: str) -> dict:
+    def ask_question_no_rag(self, question: str, plan_context: str | None = None) -> dict:
         start = time.time()
+
+        if plan_context:
+            question = f"{plan_context}\n\nคำถาม: {question}"
 
         prompt = PromptTemplate(
             template=(
@@ -199,7 +183,7 @@ class RAGService:
         return {
             "answer": answer,
             "sources": [],
-            "model_used": settings.GEMINI_MODEL if settings.LLM_PROVIDER == "gemini" else settings.OLLAMA_LLM_MODEL,
+            "model_used": settings.GEMINI_MODEL,
             "embedding_model": "",
             "retrieval_strategy": "none",
             "chunk_size": 0,

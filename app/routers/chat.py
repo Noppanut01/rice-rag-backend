@@ -18,7 +18,7 @@ def chat(
     question = body.question
     history = [{"role": h.role, "content": h.content} for h in body.history]
     result = rag_service.ask_question(
-        question, collection=body.collection, history=history
+        question, plan_context=body.plan_context, collection=body.collection, history=history
     )
 
     if current_user is not None:
@@ -54,7 +54,7 @@ def chat_no_rag(
     body: ChatRequest,
     current_user=Depends(get_optional_user),
 ):
-    result = rag_service.ask_question_no_rag(body.question)
+    result = rag_service.ask_question_no_rag(body.question, plan_context=body.plan_context)
     return ChatResponse(
         answer=result["answer"],
         sources=result["sources"],
