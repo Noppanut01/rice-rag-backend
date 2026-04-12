@@ -4,6 +4,7 @@ from sqlalchemy.orm.session import Session
 from app.dependencies import get_db, require_admin
 from app.models.prompt import PromptTemplate
 from app.schemas.prompt import PromptTemplateRequest, PromptTemplateResponse
+from app.services.rag_service import rag_service
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
@@ -41,6 +42,11 @@ def create_template(
         content=str(template.content),
         created_at=str(template.created_at),
     )
+
+
+@router.post("/generate", response_model=list[dict])
+def generate_suggestions(_=Depends(require_admin)):
+    return rag_service.generate_prompt_suggestions()
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)

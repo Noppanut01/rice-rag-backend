@@ -16,7 +16,10 @@ def chat(
     current_user=Depends(get_optional_user),
 ):
     question = body.question
-    result = rag_service.ask_question(question)
+    history = [{"role": h.role, "content": h.content} for h in body.history]
+    result = rag_service.ask_question(
+        question, plan_context=body.plan_context, collection=body.collection, history=history
+    )
 
     if current_user is not None:
         chat_record = ChatHistory(
@@ -30,7 +33,6 @@ def chat(
             chunk_size=result["chunk_size"],
             chunks_retrieved=result["chunks_retrieved"],
             response_time_ms=result["response_time_ms"],
-            ram_used_mb=result["ram_used_mb"],
         )
         db.add(chat_record)
         db.commit()
@@ -39,7 +41,6 @@ def chat(
         answer=result["answer"],
         sources=result["sources"],
         response_time_ms=result["response_time_ms"],
-        ram_used_mb=result["ram_used_mb"],
         model_used=result["model_used"],
         embedding_model=result["embedding_model"],
         retrieval_strategy=result["retrieval_strategy"],
@@ -53,12 +54,11 @@ def chat_no_rag(
     body: ChatRequest,
     current_user=Depends(get_optional_user),
 ):
-    result = rag_service.ask_question_no_rag(body.question)
+    result = rag_service.ask_question_no_rag(body.question, plan_context=body.plan_context)
     return ChatResponse(
         answer=result["answer"],
         sources=result["sources"],
         response_time_ms=result["response_time_ms"],
-        ram_used_mb=result["ram_used_mb"],
         model_used=result["model_used"],
         embedding_model=result["embedding_model"],
         retrieval_strategy=result["retrieval_strategy"],
@@ -70,7 +70,10 @@ def chat_no_rag(
 @router.get("/history", response_model=list[ChatHistoryItem])
 def history(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     chat_histories = (
-        db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id).all()
+        db.query(ChatHistory)
+        .filter(ChatHistory.user_id == current_user.id)
+        .order_by(ChatHistory.created_at)
+        .all()
     )
     return [
         ChatHistoryItem(
