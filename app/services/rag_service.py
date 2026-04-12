@@ -105,17 +105,27 @@ class RAGService:
                 seen_sources.add(src)
                 sources.append(src)
 
+        history_text = ""
+        if history:
+            # ใช้ 10 ข้อความล่าสุด (5 คู่ ถาม-ตอบ)
+            recent_history = history[-10:]
+            for msg in recent_history:
+                role = "ผู้ใช้" if msg.get("role") == "user" else "ระบบ"
+                history_text += f"{role}: {msg.get('content')}\n"
+            history_text = f"ประวัติการสนทนาก่อนหน้า:\n{history_text}\n"
+
         prompt = PromptTemplate(
             template=(
-                "ใช้ข้อมูลด้านล่างตอบคำถาม ถ้าไม่มีข้อมูลให้บอกว่าไม่ทราบ\n"
+                "ใช้ข้อมูลด้านล่างตอบคำถามอ้างอิงกับประวัติการสนทนา ถ้าไม่มีข้อมูลให้บอกว่าไม่ทราบ\n"
                 "ตอบเป็นภาษาไทย ไม่เกิน 5 ประโยค\n\n"
-                "ข้อมูล:\n{context}\n\n"
-                "คำถาม: {question}\n"
+                "{history_text}"
+                "ข้อมูลที่เกี่ยวข้อง:\n{context}\n\n"
+                "คำถามปัจจุบัน: {question}\n"
                 "คำตอบ:"
             ),
-            input_variables=["context", "question"],
+            input_variables=["context", "question", "history_text"],
         )
-        answer = (prompt | self.llm).invoke({"context": context, "question": question})
+        answer = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
         answer = re.sub(r'\*+', '', str(answer.content) if hasattr(answer, 'content') else answer).strip()
 
         return {
@@ -163,21 +173,30 @@ class RAGService:
             pass
         return []
 
-    def ask_question_no_rag(self, question: str, plan_context: str | None = None) -> dict:
+    def ask_question_no_rag(self, question: str, plan_context: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
 
         if plan_context:
             question = f"{plan_context}\n\nคำถาม: {question}"
 
+        history_text = ""
+        if history:
+            recent_history = history[-10:]
+            for msg in recent_history:
+                role = "ผู้ใช้" if msg.get("role") == "user" else "ระบบ"
+                history_text += f"{role}: {msg.get('content')}\n"
+            history_text = f"ประวัติการสนทนาก่อนหน้า:\n{history_text}\n"
+
         prompt = PromptTemplate(
             template=(
                 "ตอบคำถามต่อไปนี้จากความรู้ทั่วไปของคุณ ตอบเป็นภาษาไทย\n\n"
-                "คำถาม: {question}\n\n"
+                "{history_text}"
+                "คำถามปัจจุบัน: {question}\n\n"
                 "คำตอบ:"
             ),
-            input_variables=["question"],
+            input_variables=["question", "history_text"],
         )
-        answer = (prompt | self.llm).invoke({"question": question})
+        answer = (prompt | self.llm).invoke({"question": question, "history_text": history_text})
         answer = str(answer.content) if hasattr(answer, 'content') else answer
 
         return {

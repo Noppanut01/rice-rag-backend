@@ -4,6 +4,8 @@ from sqlalchemy.orm.session import Session
 
 from app.dependencies import get_db, require_admin
 from app.models.chat import ChatHistory
+from app.models.user import User
+from app.schemas.auth import UserResponse, UserRoleUpdateRequest
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -18,3 +20,34 @@ def get_faq(db: Session = Depends(get_db), _=Depends(require_admin)):
         .all()
     )
     return [{"question": row.question, "count": row.count} for row in results]
+
+
+@router.get("/users", response_model=list[UserResponse])
+def get_all_users(db: Session = Depends(get_db), _=Depends(require_admin)):
+    return db.query(User).order_by(User.created_at.desc()).all()
+
+
+@router.put("/users/{user_id}/role", response_model=UserResponse)
+def update_user_role(
+    user_id: str,
+    req: UserRoleUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin)
+):
+    if req.role not in ["admin", "user"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid role")
+        
+    if user_id == current_admin.id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="คุณไม่สามารถเปลี่ยนสิทธิ์หรือลดสิทธิ์ตัวเองได้")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="ไม่พบผู้ใช้งานนี้")
+        
+    user.role = req.role
+    db.commit()
+    db.refresh(user)
+    return user

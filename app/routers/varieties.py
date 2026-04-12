@@ -167,5 +167,8 @@ def delete_variety(variety_id: str, db: Session = Depends(get_db), _=Depends(req
     variety = db.query(RiceVariety).filter(RiceVariety.id == variety_id).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
+    collection_name = str(variety.collection_name)
     db.delete(variety)
     db.commit()
+    # ถอดจาก memory เท่านั้น — ข้อมูล Chroma บนดิสก์ยังอยู่ (ลบถาวรต้องใช้งาน Chroma API แยก)
+    rag_service.vectorstores.pop(collection_name, None)
