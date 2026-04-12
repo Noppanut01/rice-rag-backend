@@ -20,6 +20,7 @@ class RiceVarietyCreate(BaseModel):
     tillering_day: int | None = None
     panicle_initiation_day: int | None = None
     heading_day: int | None = None
+    heading_calendar: str | None = None
     fert1_rate_min: float | None = None
     fert1_rate_max: float | None = None
     fert2_rate_min: float | None = None
@@ -40,6 +41,7 @@ class RiceVarietyUpdate(BaseModel):
     tillering_day: int | None = None
     panicle_initiation_day: int | None = None
     heading_day: int | None = None
+    heading_calendar: str | None = None
     fert1_rate_min: float | None = None
     fert1_rate_max: float | None = None
     fert2_rate_min: float | None = None
@@ -62,6 +64,7 @@ class RiceVarietyResponse(BaseModel):
     tillering_day: int | None
     panicle_initiation_day: int | None
     heading_day: int | None
+    heading_calendar: str | None
     fert1_rate_min: float | None
     fert1_rate_max: float | None
     fert2_rate_min: float | None
@@ -85,6 +88,7 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         tillering_day=int(v.tillering_day) if v.tillering_day is not None else None,
         panicle_initiation_day=int(v.panicle_initiation_day) if v.panicle_initiation_day is not None else None,
         heading_day=int(v.heading_day) if v.heading_day is not None else None,
+        heading_calendar=str(v.heading_calendar) if v.heading_calendar else None,
         fert1_rate_min=float(v.fert1_rate_min) if v.fert1_rate_min is not None else None,
         fert1_rate_max=float(v.fert1_rate_max) if v.fert1_rate_max is not None else None,
         fert2_rate_min=float(v.fert2_rate_min) if v.fert2_rate_min is not None else None,
@@ -117,6 +121,7 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         tillering_day=body.tillering_day,
         panicle_initiation_day=body.panicle_initiation_day,
         heading_day=body.heading_day,
+        heading_calendar=body.heading_calendar,
         fert1_rate_min=body.fert1_rate_min,
         fert1_rate_max=body.fert1_rate_max,
         fert2_rate_min=body.fert2_rate_min,
@@ -144,7 +149,7 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
     fields = [
         "name", "harvest_age_days", "is_photoperiod_sensitive", "supported_methods",
         "description", "reference_url", "tillering_day", "panicle_initiation_day",
-        "heading_day", "fert1_rate_min", "fert1_rate_max", "fert2_rate_min", "fert2_rate_max",
+        "heading_day", "heading_calendar", "fert1_rate_min", "fert1_rate_max", "fert2_rate_min", "fert2_rate_max",
         "fert1_formula", "fert2_formula", "fert1_note", "fert2_note",
     ]
     for field in fields:

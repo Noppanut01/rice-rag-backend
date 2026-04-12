@@ -60,7 +60,8 @@ def create_plan(
         try:
             cal_m, cal_d = map(int, str(variety.heading_calendar).split("-"))
             hd = date(body.start_date.year, cal_m, cal_d)
-            if hd <= body.start_date:
+            # 🌾 ต้องมีเวลาตั้งต้นอย่างน้อย 60 วัน ถ้าน้อยกว่านี้ ข้าวจะไม่ออกดอกในปีนี้ ต้องรอสว่างสั้นของรอบปีหน้า 
+            if hd <= body.start_date + timedelta(days=60):
                 hd = date(body.start_date.year + 1, cal_m, cal_d)
             heading_calendar_date = hd
         except (ValueError, TypeError):
@@ -82,6 +83,16 @@ def create_plan(
         fert2_note=fert2_note,
         heading_calendar_date=heading_calendar_date,
     )
+
+    # 🚨 ตรวจสอบการปลูกข้าวนอกฤดู สำหรับข้าวไวแสง
+    if variety.is_photoperiod_sensitive and body.start_date.month not in [5, 6, 7, 8]:
+        tasks.insert(0, {
+            "day": 0,
+            "stage": "ข้อควรระวัง",
+            "task_name": "⚠️ ปลูกข้าวนอกฤดูกาล",
+            "description": "พันธุ์ข้าวนี้เป็นข้าวไวแสง (แนะนำปลูก พ.ค. - ส.ค.) การปลูกนอกเวลาจะทำให้การเก็บเกี่ยวผิดเพี้ยน ข้าวจะอยู่ในแปลงนานข้ามปี และดูแลรักษายาก",
+            "date": body.start_date
+        })
 
     plan = PlantingPlan(
         user_id=current_user.id,
