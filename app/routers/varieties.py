@@ -15,18 +15,16 @@ class RiceVarietyCreate(BaseModel):
     harvest_age_days: int
     is_photoperiod_sensitive: bool = False
     supported_methods: list[str] = ["transplant", "broadcast"]
+    tillering_day: int
+    panicle_initiation_day: int
+    heading_day: int
+    fert1_rate: float
+    fert2_rate: float
+    fert1_formula: str
+    fert2_formula: str
+    heading_calendar: str | None = None   # เฉพาะข้าวไวแสง รูปแบบ "DD-MM"
     description: str | None = None
     reference_url: str | None = None
-    tillering_day: int | None = None
-    panicle_initiation_day: int | None = None
-    heading_day: int | None = None
-    heading_calendar: str | None = None
-    fert1_rate_min: float | None = None
-    fert1_rate_max: float | None = None
-    fert2_rate_min: float | None = None
-    fert2_rate_max: float | None = None
-    fert1_formula: str | None = None
-    fert2_formula: str | None = None
     fert1_note: str | None = None
     fert2_note: str | None = None
 
@@ -42,10 +40,8 @@ class RiceVarietyUpdate(BaseModel):
     panicle_initiation_day: int | None = None
     heading_day: int | None = None
     heading_calendar: str | None = None
-    fert1_rate_min: float | None = None
-    fert1_rate_max: float | None = None
-    fert2_rate_min: float | None = None
-    fert2_rate_max: float | None = None
+    fert1_rate: float | None = None
+    fert2_rate: float | None = None
     fert1_formula: str | None = None
     fert2_formula: str | None = None
     fert1_note: str | None = None
@@ -65,10 +61,8 @@ class RiceVarietyResponse(BaseModel):
     panicle_initiation_day: int | None
     heading_day: int | None
     heading_calendar: str | None
-    fert1_rate_min: float | None
-    fert1_rate_max: float | None
-    fert2_rate_min: float | None
-    fert2_rate_max: float | None
+    fert1_rate: float | None
+    fert2_rate: float | None
     fert1_formula: str | None
     fert2_formula: str | None
     fert1_note: str | None
@@ -89,10 +83,8 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         panicle_initiation_day=int(v.panicle_initiation_day) if v.panicle_initiation_day is not None else None,
         heading_day=int(v.heading_day) if v.heading_day is not None else None,
         heading_calendar=str(v.heading_calendar) if v.heading_calendar else None,
-        fert1_rate_min=float(v.fert1_rate_min) if v.fert1_rate_min is not None else None,
-        fert1_rate_max=float(v.fert1_rate_max) if v.fert1_rate_max is not None else None,
-        fert2_rate_min=float(v.fert2_rate_min) if v.fert2_rate_min is not None else None,
-        fert2_rate_max=float(v.fert2_rate_max) if v.fert2_rate_max is not None else None,
+        fert1_rate=float(v.fert1_rate) if v.fert1_rate is not None else None,
+        fert2_rate=float(v.fert2_rate) if v.fert2_rate is not None else None,
         fert1_formula=str(v.fert1_formula) if v.fert1_formula else None,
         fert2_formula=str(v.fert2_formula) if v.fert2_formula else None,
         fert1_note=str(v.fert1_note) if v.fert1_note else None,
@@ -122,10 +114,8 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         panicle_initiation_day=body.panicle_initiation_day,
         heading_day=body.heading_day,
         heading_calendar=body.heading_calendar,
-        fert1_rate_min=body.fert1_rate_min,
-        fert1_rate_max=body.fert1_rate_max,
-        fert2_rate_min=body.fert2_rate_min,
-        fert2_rate_max=body.fert2_rate_max,
+        fert1_rate=body.fert1_rate,
+        fert2_rate=body.fert2_rate,
         fert1_formula=body.fert1_formula,
         fert2_formula=body.fert2_formula,
         fert1_note=body.fert1_note,
@@ -146,16 +136,8 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
-    fields = [
-        "name", "harvest_age_days", "is_photoperiod_sensitive", "supported_methods",
-        "description", "reference_url", "tillering_day", "panicle_initiation_day",
-        "heading_day", "heading_calendar", "fert1_rate_min", "fert1_rate_max", "fert2_rate_min", "fert2_rate_max",
-        "fert1_formula", "fert2_formula", "fert1_note", "fert2_note",
-    ]
-    for field in fields:
-        val = getattr(body, field)
-        if val is not None:
-            setattr(variety, field, val)
+    for field, val in body.model_dump(exclude_unset=True).items():
+        setattr(variety, field, val)
 
     db.commit()
     db.refresh(variety)

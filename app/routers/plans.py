@@ -6,33 +6,49 @@ from app.dependencies import get_current_user, get_db
 from app.models.plan import PlanTask, PlantingPlan
 from app.models.variety import RiceVariety
 from app.schemas.plan import PlanRequest, PlanResources, PlanResponse, PlanTaskResponse
-from app.services.plan_service import PLANTING_DAY, _calculate_resources, plan_service
+from app.services.plan_service import PLANTING_DAY, SOIL_FERT1_FORMULA, _calculate_resources, plan_service
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
-SOIL_FERT1_FORMULA = {
-    "clay": "16-20-0",
-    "loam": "16-16-8",
-    "sandy": "16-16-8",
-}
+
+def _task_to_response(t: PlanTask) -> PlanTaskResponse:
+    return PlanTaskResponse(
+        id=str(t.id),
+        day=int(t.day),
+        stage=str(t.stage),
+        task_name=str(t.task_name),
+        description=str(t.description) if t.description else None,
+        date=str(t.date),
+        is_completed=bool(t.is_completed),
+    )
 
 
-def _resolve_fert(variety: RiceVariety, soil_type: str) -> tuple[float, float, float, float, str, str, str, str]:
-    """Returns (fert1_rate, fert1_max, fert2_rate, fert2_max, fert1_formula, fert2_formula, fert1_note, fert2_note)"""
-    is_sensitive = bool(variety.is_photoperiod_sensitive)
+def _plan_to_response(plan: PlantingPlan, tasks: list, resources: dict, actual_planting_date) -> PlanResponse:
+    return PlanResponse(
+        id=str(plan.id),
+        variety_id=str(plan.variety_id),
+        variety_name=str(plan.variety_name),
+        start_date=str(plan.start_date),
+        actual_planting_date=str(actual_planting_date),
+        area_rai=float(plan.area_rai),
+        plot_name=str(plan.plot_name) if plan.plot_name else None,
+        planting_method=str(plan.planting_method),
+        soil_type=str(plan.soil_type) if plan.soil_type else "clay",
+        resources=PlanResources(**resources),
+        tasks=[_task_to_response(t) for t in tasks],
+        created_at=str(plan.created_at),
+    )
 
-    fert1_min = float(variety.fert1_rate_min) if variety.fert1_rate_min is not None else (20.0 if is_sensitive else 25.0)
-    fert1_max = float(variety.fert1_rate_max) if variety.fert1_rate_max is not None else (25.0 if is_sensitive else 35.0)
-    fert2_min = float(variety.fert2_rate_min) if variety.fert2_rate_min is not None else (5.0 if is_sensitive else 10.0)
-    fert2_max = float(variety.fert2_rate_max) if variety.fert2_rate_max is not None else (10.0 if is_sensitive else 15.0)
 
-    fert1_formula = str(variety.fert1_formula) if variety.fert1_formula else SOIL_FERT1_FORMULA.get(soil_type, "16-20-0")
-    fert2_formula = str(variety.fert2_formula) if variety.fert2_formula else "46-0-0"
-
-    fert1_note = str(variety.fert1_note) if variety.fert1_note else f"แนะนำ {int(fert1_min)}-{int(fert1_max)} กก./ไร่ ขึ้นอยู่กับสภาพดินและผลผลิตที่ต้องการ"
-    fert2_note = str(variety.fert2_note) if variety.fert2_note else f"แนะนำ {int(fert2_min)}-{int(fert2_max)} กก./ไร่ ขึ้นอยู่กับสภาพดินและผลผลิตที่ต้องการ"
-
-    return fert1_min, fert1_max, fert2_min, fert2_max, fert1_formula, fert2_formula, fert1_note, fert2_note
+def _resolve_fert(variety: RiceVariety) -> tuple[float, float, str, str, str, str]:
+    """Returns (fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note)"""
+    fert1_rate = float(variety.fert1_rate)
+    fert2_rate = float(variety.fert2_rate)
+    fert1_formula = str(variety.fert1_formula)
+    fert2_formula = str(variety.fert2_formula)
+    fert1_note = str(variety.fert1_note) if variety.fert1_note else f"แนะนำ {int(fert1_rate)} กก./ไร่"
+    fert2_note = str(variety.fert2_note) if variety.fert2_note else f"แนะนำ {int(fert2_rate)} กก./ไร่"
+    return fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note
 
 
 @router.post("/", response_model=PlanResponse)
@@ -52,13 +68,15 @@ def create_plan(
         )
 
     h = int(variety.harvest_age_days)
-    fert1_rate, _, fert2_rate, _, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety, body.soil_type)
+    fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
-    # ข้าวไวแสง: แปลง heading_calendar "MM-DD" → date object ของปีที่เหมาะสม
+    # ข้าวไวแสง: แปลง heading_calendar "DD-MM" → date object ของปีที่เหมาะสม
+
+
     heading_calendar_date: date | None = None
     if variety.heading_calendar:
         try:
-            cal_m, cal_d = map(int, str(variety.heading_calendar).split("-"))
+            cal_d, cal_m = map(int, str(variety.heading_calendar).split("-"))
             hd = date(body.start_date.year, cal_m, cal_d)
             # 🌾 ต้องมีเวลาตั้งต้นอย่างน้อย 60 วัน ถ้าน้อยกว่านี้ ข้าวจะไม่ออกดอกในปีนี้ ต้องรอสว่างสั้นของรอบปีหน้า 
             if hd <= body.start_date + timedelta(days=60):
@@ -79,6 +97,7 @@ def create_plan(
         fert1_rate=fert1_rate,
         fert2_rate=fert2_rate,
         fert1_formula=fert1_formula,
+        fert2_formula=fert2_formula,
         fert1_note=fert1_note,
         fert2_note=fert2_note,
         heading_calendar_date=heading_calendar_date,
@@ -121,31 +140,7 @@ def create_plan(
     db.refresh(plan)
 
     plan_tasks = db.query(PlanTask).filter(PlanTask.plan_id == plan.id).order_by(PlanTask.day).all()
-    return PlanResponse(
-        id=str(plan.id),
-        variety_id=str(plan.variety_id),
-        variety_name=str(plan.variety_name),
-        start_date=str(plan.start_date),
-        actual_planting_date=str(actual_planting_date),
-        area_rai=float(plan.area_rai),
-        plot_name=str(plan.plot_name) if plan.plot_name else None,
-        planting_method=str(plan.planting_method),
-        soil_type=str(plan.soil_type) if plan.soil_type else "clay",
-        resources=PlanResources(**resources),
-        tasks=[
-            PlanTaskResponse(
-                id=str(t.id),
-                day=int(t.day),
-                stage=str(t.stage),
-                task_name=str(t.task_name),
-                description=str(t.description) if t.description else None,
-                date=str(t.date),
-                is_completed=bool(t.is_completed),
-            )
-            for t in plan_tasks
-        ],
-        created_at=str(plan.created_at),
-    )
+    return _plan_to_response(plan, plan_tasks, resources, actual_planting_date)
 
 
 @router.get("/", response_model=list[PlanResponse])
@@ -160,31 +155,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         resources = _calculate_resources(str(p.planting_method), float(p.area_rai), soil_type, fert1_rate, fert2_rate, fert1_formula)
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)
-        result.append(PlanResponse(
-            id=str(p.id),
-            variety_id=str(p.variety_id),
-            variety_name=str(p.variety_name),
-            start_date=str(p.start_date),
-            actual_planting_date=str(actual_planting_date),
-            area_rai=float(p.area_rai),
-            plot_name=str(p.plot_name) if p.plot_name else None,
-            planting_method=str(p.planting_method),
-            soil_type=soil_type,
-            resources=PlanResources(**resources),
-            tasks=[
-                PlanTaskResponse(
-                    id=str(t.id),
-                    day=int(t.day),
-                    stage=str(t.stage),
-                    task_name=str(t.task_name),
-                    description=str(t.description) if t.description else None,
-                    date=str(t.date),
-                    is_completed=bool(t.is_completed),
-                )
-                for t in tasks
-            ],
-            created_at=str(p.created_at),
-        ))
+        result.append(_plan_to_response(p, tasks, resources, actual_planting_date))
     return result
 
 
@@ -209,15 +180,7 @@ def toggle_task(
     task.is_completed = not task.is_completed
     db.commit()
     db.refresh(task)
-    return PlanTaskResponse(
-        id=str(task.id),
-        day=int(task.day),
-        stage=str(task.stage),
-        task_name=str(task.task_name),
-        description=str(task.description) if task.description else None,
-        date=str(task.date),
-        is_completed=bool(task.is_completed),
-    )
+    return _task_to_response(task)
 
 
 @router.delete("/{plan_id}", status_code=204)
