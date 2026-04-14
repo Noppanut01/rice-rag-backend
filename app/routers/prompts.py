@@ -9,17 +9,18 @@ from app.services.rag_service import rag_service
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 
+def _template_to_response(t: PromptTemplate) -> PromptTemplateResponse:
+    return PromptTemplateResponse(
+        id=str(t.id),
+        title=str(t.title),
+        content=str(t.content),
+        created_at=str(t.created_at),
+    )
+
+
 @router.get("/", response_model=list[PromptTemplateResponse])
 def list_templates(db: Session = Depends(get_db)):
-    return [
-        PromptTemplateResponse(
-            id=str(t.id),
-            title=str(t.title),
-            content=str(t.content),
-            created_at=str(t.created_at),
-        )
-        for t in db.query(PromptTemplate).all()
-    ]
+    return [_template_to_response(t) for t in db.query(PromptTemplate).all()]
 
 
 @router.post("/", response_model=PromptTemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -36,12 +37,7 @@ def create_template(
     db.add(template)
     db.commit()
     db.refresh(template)
-    return PromptTemplateResponse(
-        id=str(template.id),
-        title=str(template.title),
-        content=str(template.content),
-        created_at=str(template.created_at),
-    )
+    return _template_to_response(template)
 
 
 @router.post("/generate", response_model=list[dict])

@@ -1,5 +1,6 @@
 import shutil
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -15,6 +16,16 @@ from app.services.rag_service import rag_service
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+def _doc_to_response(doc: Document) -> DocumentResponse:
+    return DocumentResponse(
+        id=str(doc.id),
+        filename=str(doc.filename),
+        file_type=Path(str(doc.filename)).suffix.lstrip(".").lower(),
+        chroma_collection=str(doc.chroma_collection),
+        created_at=str(doc.created_at),
+    )
+
+
 @router.get("/collections")
 def list_collections(db: Session = Depends(get_db)):
     varieties = db.query(RiceVariety).all()
@@ -25,16 +36,7 @@ def list_collections(db: Session = Depends(get_db)):
 
 @router.get("/", response_model=list[DocumentResponse])
 def list_documents(db: Session = Depends(get_db)):
-    return [
-        DocumentResponse(
-            id=str(doc.id),
-            filename=str(doc.filename),
-            file_type=Path(str(doc.filename)).suffix.lstrip(".").lower(),
-            chroma_collection=str(doc.chroma_collection),
-            created_at=str(doc.created_at),
-        )
-        for doc in db.query(Document).all()
-    ]
+    return [_doc_to_response(doc) for doc in db.query(Document).all()]
 
 
 @router.post("/upload", response_model=list[DocumentResponse])
@@ -69,15 +71,7 @@ def upload(
         db.commit()
         db.refresh(doc)
 
-        results.append(
-            DocumentResponse(
-                id=str(doc.id),
-                filename=str(doc.filename),
-                file_type=Path(str(doc.filename)).suffix.lstrip(".").lower(),
-                chroma_collection=str(doc.chroma_collection),
-                created_at=str(doc.created_at),
-            )
-        )
+        results.append(_doc_to_response(doc))
 
     return results
 
@@ -96,10 +90,16 @@ def get_file(id: str, db: Session = Depends(get_db)):
         ".txt": "text/plain",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
+    inline_types = {".pdf", ".txt"}
+    if suffix in inline_types:
+        disposition_header = "inline"
+    else:
+        encoded_name = quote(str(document.filename), safe="")
+        disposition_header = f"attachment; filename*=UTF-8''{encoded_name}"
     return FileResponse(
         path=str(file_path),
-        filename=str(document.filename),
         media_type=media_types.get(suffix, "application/octet-stream"),
+        headers={"Content-Disposition": disposition_header},
     )
 
 

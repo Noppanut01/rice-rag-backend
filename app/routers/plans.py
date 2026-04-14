@@ -67,6 +67,12 @@ def create_plan(
             detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
         )
 
+    if variety.is_photoperiod_sensitive and body.start_date.month not in [5, 6, 7, 8]:
+        raise HTTPException(
+            status_code=400,
+            detail="ข้าวไวแสงควรปลูกในช่วง พ.ค. – ส.ค. เท่านั้น เพราะต้องอาศัยช่วงแสงสั้นในการออกดอกตามธรรมชาติ"
+        )
+
     h = int(variety.harvest_age_days)
     fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
@@ -78,8 +84,9 @@ def create_plan(
         try:
             cal_d, cal_m = map(int, str(variety.heading_calendar).split("-"))
             hd = date(body.start_date.year, cal_m, cal_d)
-            # 🌾 ต้องมีเวลาตั้งต้นอย่างน้อย 60 วัน ถ้าน้อยกว่านี้ ข้าวจะไม่ออกดอกในปีนี้ ต้องรอสว่างสั้นของรอบปีหน้า 
-            if hd <= body.start_date + timedelta(days=60):
+            # ต้องมีเวลาตั้งต้นอย่างน้อย planting_offset + 100 วัน (ขั้นต่ำที่ข้าวต้องการก่อนออกรวง)
+            min_days = PLANTING_DAY[body.planting_method] + 100
+            if hd <= body.start_date + timedelta(days=min_days):
                 hd = date(body.start_date.year + 1, cal_m, cal_d)
             heading_calendar_date = hd
         except (ValueError, TypeError):
@@ -102,16 +109,6 @@ def create_plan(
         fert2_note=fert2_note,
         heading_calendar_date=heading_calendar_date,
     )
-
-    # 🚨 ตรวจสอบการปลูกข้าวนอกฤดู สำหรับข้าวไวแสง
-    if variety.is_photoperiod_sensitive and body.start_date.month not in [5, 6, 7, 8]:
-        tasks.insert(0, {
-            "day": 0,
-            "stage": "ข้อควรระวัง",
-            "task_name": "⚠️ ปลูกข้าวนอกฤดูกาล",
-            "description": "พันธุ์ข้าวนี้เป็นข้าวไวแสง (แนะนำปลูก พ.ค. - ส.ค.) การปลูกนอกเวลาจะทำให้การเก็บเกี่ยวผิดเพี้ยน ข้าวจะอยู่ในแปลงนานข้ามปี และดูแลรักษายาก",
-            "date": body.start_date
-        })
 
     plan = PlantingPlan(
         user_id=current_user.id,
@@ -151,7 +148,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         tasks = db.query(PlanTask).filter(PlanTask.plan_id == p.id).order_by(PlanTask.day).all()
         variety = db.query(RiceVariety).filter(RiceVariety.id == p.variety_id).first()
         soil_type = str(p.soil_type) if p.soil_type else "clay"
-        fert1_rate, _, fert2_rate, _, fert1_formula, _, _, _ = _resolve_fert(variety, soil_type) if variety else (25.0, 35.0, 10.0, 15.0, "", "46-0-0", "", "")
+        fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety) if variety else (25.0, 10.0, "", "46-0-0", "", "")
         resources = _calculate_resources(str(p.planting_method), float(p.area_rai), soil_type, fert1_rate, fert2_rate, fert1_formula)
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)

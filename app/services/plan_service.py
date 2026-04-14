@@ -37,11 +37,12 @@ def _build_tasks(
     fert1_rate: float,
     fert2_rate: float,
     fert1_formula: str = "",
+    fert2_formula: str = "",
     fert1_note: str = "",
     fert2_note: str = "",
 ) -> list[tuple]:
     resolved_f1 = fert1_formula or SOIL_FERT1_FORMULA.get(soil_type, "16-20-0")
-    resolved_f2 = "46-0-0"
+    resolved_f2 = fert2_formula or "46-0-0"
     multiplier = SOIL_FERT_MULTIPLIER.get(soil_type, 1.0)
 
     adj_f1_rate = round(fert1_rate * multiplier, 1)
@@ -195,7 +196,7 @@ def _build_tasks(
         (fert2_day, "ระยะกำเนิดช่อดอก", "ใส่ปุ๋ยครั้งที่ 2", fert2_desc),
         (
             heading_day,
-            "ระยะออกรวง",
+            "ระยะตั้งท้องและออกรวง",
             "ตรวจสอบรวงข้าว",
             "ระยะออกรวง: สังเกตการออกดอกและรักษาระดับน้ำให้คงที่เพื่อสะสมแป้งและสร้างเมล็ดที่สมบูรณ์",
         ),
@@ -268,10 +269,11 @@ class PlanService:
         fert1_rate: float,
         fert2_rate: float,
         fert1_formula: str = "",
+        fert2_formula: str = "",
         fert1_note: str = "",
         fert2_note: str = "",
         heading_calendar_date: date
-        | None = None,  # วันออกดอกตามปฏิทิน (ข้าวไวแสง) เช่น date(2026, 11, 20)
+        | None = None,  # วันออกรวงตามปฏิทิน (ข้าวไวแสง) เช่น date(2026, 11, 20)
     ) -> tuple[list[dict], dict, date]:
         p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
@@ -287,22 +289,16 @@ class PlanService:
                 if panicle_initiation_day is not None
                 else g_heading - 30
             )
-            g_harvest = g_heading + 30  # เก็บเกี่ยวหลังออกดอก 30 วัน
+            g_harvest = g_heading + 30  # เก็บเกี่ยวหลังออกรวง 30 วัน
         else:
-            # ข้าวไม่ไวแสง: คำนวณจาก harvest_age_days
-            g_harvest = harvest_age_days
-            g_heading = (
-                heading_day if heading_day is not None else harvest_age_days - 30
-            )
-            g_panicle = (
-                panicle_initiation_day
-                if panicle_initiation_day is not None
-                else harvest_age_days - 60
-            )
+            # ข้าวไม่ไวแสง
+            # NOTE: harvest_age_days ไม่ได้ใช้คำนวณ harvest จริง (harvest_abs = heading + 30 เสมอ)
+            # เก็บไว้เผื่อนำกลับมาใช้ในอนาคต
+            # g_harvest = harvest_age_days
+            g_heading = heading_day
+            g_panicle = panicle_initiation_day
 
-        g_tillering = (
-            tillering_day if tillering_day is not None else round(g_harvest * 0.25)
-        )
+        g_tillering = tillering_day
 
         # แปลงเป็น absolute day จาก start_date (Day 0) — บวก p ที่เดียว ไม่ซ้ำ
         fert1_day_abs = p + g_tillering
@@ -323,6 +319,7 @@ class PlanService:
             fert1_rate,
             fert2_rate,
             fert1_formula,
+            fert2_formula,
             fert1_note,
             fert2_note,
         )

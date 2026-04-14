@@ -3,6 +3,8 @@ import os
 import re
 import time
 
+_STRIP_ASTERISKS = re.compile(r'\*+')
+
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -28,6 +30,16 @@ class RAGService:
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
         )
+
+    def _build_history_text(self, history: list[dict] | None) -> str:
+        if not history:
+            return ""
+        recent = history[-10:]
+        lines = "".join(
+            ("ผู้ใช้" if msg.get("role") == "user" else "ระบบ") + ": " + str(msg.get("content")) + "\n"
+            for msg in recent
+        )
+        return f"ประวัติการสนทนาก่อนหน้า:\n{lines}\n"
 
     def load_collections(self, names: list[str]):
         for name in names:
@@ -105,14 +117,7 @@ class RAGService:
                 seen_sources.add(src)
                 sources.append(src)
 
-        history_text = ""
-        if history:
-            # ใช้ 10 ข้อความล่าสุด (5 คู่ ถาม-ตอบ)
-            recent_history = history[-10:]
-            for msg in recent_history:
-                role = "ผู้ใช้" if msg.get("role") == "user" else "ระบบ"
-                history_text += f"{role}: {msg.get('content')}\n"
-            history_text = f"ประวัติการสนทนาก่อนหน้า:\n{history_text}\n"
+        history_text = self._build_history_text(history)
 
         prompt = PromptTemplate(
             template=(
@@ -126,7 +131,7 @@ class RAGService:
             input_variables=["context", "question", "history_text"],
         )
         answer = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
-        answer = re.sub(r'\*+', '', str(answer.content) if hasattr(answer, 'content') else answer).strip()
+        answer = _STRIP_ASTERISKS.sub('', str(answer.content) if hasattr(answer, 'content') else answer).strip()
 
         return {
             "answer": answer,
@@ -176,28 +181,22 @@ class RAGService:
     def ask_question_no_rag(self, question: str, plan_context: str | None = None, history: list[dict] | None = None) -> dict:
         start = time.time()
 
-        if plan_context:
-            question = f"{plan_context}\n\nคำถาม: {question}"
+        context = plan_context if plan_context else ""
 
-        history_text = ""
-        if history:
-            recent_history = history[-10:]
-            for msg in recent_history:
-                role = "ผู้ใช้" if msg.get("role") == "user" else "ระบบ"
-                history_text += f"{role}: {msg.get('content')}\n"
-            history_text = f"ประวัติการสนทนาก่อนหน้า:\n{history_text}\n"
+        history_text = self._build_history_text(history)
 
         prompt = PromptTemplate(
             template=(
-                "ตอบคำถามต่อไปนี้จากความรู้ทั่วไปของคุณ ตอบเป็นภาษาไทย\n\n"
+                "ตอบคำถามเป็นภาษาไทย ไม่เกิน 5 ประโยค\n\n"
                 "{history_text}"
-                "คำถามปัจจุบัน: {question}\n\n"
+                "{context}"
+                "คำถามปัจจุบัน: {question}\n"
                 "คำตอบ:"
             ),
-            input_variables=["question", "history_text"],
+            input_variables=["context", "question", "history_text"],
         )
-        answer = (prompt | self.llm).invoke({"question": question, "history_text": history_text})
-        answer = str(answer.content) if hasattr(answer, 'content') else answer
+        answer = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
+        answer = _STRIP_ASTERISKS.sub('', str(answer.content) if hasattr(answer, 'content') else answer).strip()
 
         return {
             "answer": answer,

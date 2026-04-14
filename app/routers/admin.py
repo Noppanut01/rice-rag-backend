@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm.session import Session
 
@@ -35,16 +35,13 @@ def update_user_role(
     current_admin: User = Depends(require_admin)
 ):
     if req.role not in ["admin", "user"]:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Invalid role")
-        
+
     if user_id == current_admin.id:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="คุณไม่สามารถเปลี่ยนสิทธิ์หรือลดสิทธิ์ตัวเองได้")
-        
+
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="ไม่พบผู้ใช้งานนี้")
         
     user.role = req.role

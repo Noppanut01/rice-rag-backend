@@ -17,7 +17,7 @@ class RiceVarietyCreate(BaseModel):
     supported_methods: list[str] = ["transplant", "broadcast"]
     tillering_day: int
     panicle_initiation_day: int
-    heading_day: int
+    heading_day: int | None = None        # ไม่ไวแสง: required / ไวแสง: ไม่ใช้
     fert1_rate: float
     fert2_rate: float
     fert1_formula: str
@@ -101,6 +101,13 @@ def list_varieties(db: Session = Depends(get_db)):
 def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     if db.query(RiceVariety).filter(RiceVariety.collection_name == body.collection_name).first():
         raise HTTPException(status_code=400, detail="collection_name นี้มีอยู่แล้ว")
+
+    if body.is_photoperiod_sensitive:
+        if not body.heading_calendar:
+            raise HTTPException(status_code=400, detail="ข้าวไวแสงต้องระบุวันตั้งท้องและออกรวงตามปฏิทิน (heading_calendar)")
+    else:
+        if body.heading_day is None:
+            raise HTTPException(status_code=400, detail="ข้าวไม่ไวแสงต้องระบุวันตั้งท้องและออกรวง (heading_day)")
 
     variety = RiceVariety(
         name=body.name,

@@ -9,6 +9,19 @@ from app.services.rag_service import rag_service
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+def _result_to_response(result: dict) -> ChatResponse:
+    return ChatResponse(
+        answer=result["answer"],
+        sources=result["sources"],
+        response_time_ms=result["response_time_ms"],
+        model_used=result["model_used"],
+        embedding_model=result["embedding_model"],
+        retrieval_strategy=result["retrieval_strategy"],
+        chunk_size=result["chunk_size"],
+        chunks_retrieved=result["chunks_retrieved"],
+    )
+
+
 @router.post("/", response_model=ChatResponse)
 def chat(
     body: ChatRequest,
@@ -37,16 +50,7 @@ def chat(
         db.add(chat_record)
         db.commit()
 
-    return ChatResponse(
-        answer=result["answer"],
-        sources=result["sources"],
-        response_time_ms=result["response_time_ms"],
-        model_used=result["model_used"],
-        embedding_model=result["embedding_model"],
-        retrieval_strategy=result["retrieval_strategy"],
-        chunk_size=result["chunk_size"],
-        chunks_retrieved=result["chunks_retrieved"],
-    )
+    return _result_to_response(result)
 
 
 @router.post("/no-rag", response_model=ChatResponse)
@@ -56,16 +60,7 @@ def chat_no_rag(
 ):
     history = [{"role": h.role, "content": h.content} for h in body.history]
     result = rag_service.ask_question_no_rag(body.question, plan_context=body.plan_context, history=history)
-    return ChatResponse(
-        answer=result["answer"],
-        sources=result["sources"],
-        response_time_ms=result["response_time_ms"],
-        model_used=result["model_used"],
-        embedding_model=result["embedding_model"],
-        retrieval_strategy=result["retrieval_strategy"],
-        chunk_size=result["chunk_size"],
-        chunks_retrieved=result["chunks_retrieved"],
-    )
+    return _result_to_response(result)
 
 
 @router.get("/history", response_model=list[ChatHistoryItem])
