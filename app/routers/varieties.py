@@ -1,8 +1,13 @@
+import shutil
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.dependencies import get_db, require_admin
+from app.models.document import Document
 from app.models.variety import RiceVariety
 from app.services.rag_service import rag_service
 
@@ -99,6 +104,8 @@ def list_varieties(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=RiceVarietyResponse)
 def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    if " " in body.collection_name or not body.collection_name == body.collection_name.lower():
+        raise HTTPException(status_code=400, detail="collection_name ต้องเป็นตัวพิมพ์เล็กและห้ามมีช่องว่าง")
     if db.query(RiceVariety).filter(RiceVariety.collection_name == body.collection_name).first():
         raise HTTPException(status_code=400, detail="collection_name นี้มีอยู่แล้ว")
 
@@ -151,13 +158,34 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
     return _to_response(variety)
 
 
-@router.delete("/{variety_id}", status_code=204)
+@router.delete("/{variety_id}")
 def delete_variety(variety_id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
     variety = db.query(RiceVariety).filter(RiceVariety.id == variety_id).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
+
     collection_name = str(variety.collection_name)
+    doc_count = db.query(Document).filter(Document.chroma_collection == collection_name).count()
+    if doc_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ไม่สามารถลบได้ มีเอกสาร {doc_count} ไฟล์ใน collection นี้ — กรุณาลบเอกสารก่อน"
+        )
+
+    # ลบ ChromaDB collection
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIRECTORY)
+        client.delete_collection(collection_name)
+    except Exception:
+        pass
+    rag_service.vectorstores.pop(collection_name, None)
+
+    # ลบ folder upload
+    folder = Path(settings.UPLOAD_DIR) / collection_name
+    if folder.exists():
+        shutil.rmtree(folder)
+
     db.delete(variety)
     db.commit()
-    # ถอดจาก memory เท่านั้น — ข้อมูล Chroma บนดิสก์ยังอยู่ (ลบถาวรต้องใช้งาน Chroma API แยก)
-    rag_service.vectorstores.pop(collection_name, None)
+    return {"detail": f"ลบพันธุ์ข้าว '{variety.name}' และ collection '{collection_name}' เรียบร้อย"}

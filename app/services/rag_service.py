@@ -130,8 +130,9 @@ class RAGService:
             ),
             input_variables=["context", "question", "history_text"],
         )
-        answer = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
-        answer = _STRIP_ASTERISKS.sub('', str(answer.content) if hasattr(answer, 'content') else answer).strip()
+        raw = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
+        usage = raw.response_metadata.get("usage_metadata", {}) if hasattr(raw, "response_metadata") else {}
+        answer = _STRIP_ASTERISKS.sub('', str(raw.content) if hasattr(raw, 'content') else raw).strip()
 
         return {
             "answer": answer,
@@ -140,7 +141,10 @@ class RAGService:
             "embedding_model": settings.GEMINI_EMBEDDING_MODEL,
             "retrieval_strategy": settings.RETRIEVAL_STRATEGY,
             "chunk_size": settings.CHUNK_SIZE,
+            "retrieval_k": settings.RETRIEVAL_K,
             "chunks_retrieved": len(docs),
+            "input_tokens": usage.get("prompt_token_count", 0),
+            "output_tokens": usage.get("candidates_token_count", 0),
             "response_time_ms": round((time.time() - start) * 1000),
         }
 
@@ -195,8 +199,9 @@ class RAGService:
             ),
             input_variables=["context", "question", "history_text"],
         )
-        answer = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
-        answer = _STRIP_ASTERISKS.sub('', str(answer.content) if hasattr(answer, 'content') else answer).strip()
+        raw = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
+        usage = raw.response_metadata.get("usage_metadata", {}) if hasattr(raw, "response_metadata") else {}
+        answer = _STRIP_ASTERISKS.sub('', str(raw.content) if hasattr(raw, 'content') else raw).strip()
 
         return {
             "answer": answer,
@@ -205,7 +210,10 @@ class RAGService:
             "embedding_model": "",
             "retrieval_strategy": "none",
             "chunk_size": 0,
+            "retrieval_k": 0,
             "chunks_retrieved": 0,
+            "input_tokens": usage.get("prompt_token_count", 0),
+            "output_tokens": usage.get("candidates_token_count", 0),
             "response_time_ms": round((time.time() - start) * 1000),
         }
 

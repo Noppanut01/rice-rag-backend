@@ -21,7 +21,10 @@ class ChatResponse(BaseModel):
     embedding_model: str
     retrieval_strategy: str
     chunk_size: int
+    retrieval_k: int
     chunks_retrieved: int
+    input_tokens: int
+    output_tokens: int
 
 
 class ChatHistoryItem(BaseModel):

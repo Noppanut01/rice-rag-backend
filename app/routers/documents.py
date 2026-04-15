@@ -55,7 +55,9 @@ def upload(
         if not file.filename or not file.filename.endswith((".pdf", ".txt", ".docx")):
             raise HTTPException(status_code=400, detail="รองรับแค่ .pdf .txt .docx")
 
-        file_path = Path(settings.UPLOAD_DIR) / file.filename
+        collection_dir = Path(settings.UPLOAD_DIR) / collection
+        collection_dir.mkdir(parents=True, exist_ok=True)
+        file_path = collection_dir / file.filename
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 

@@ -18,7 +18,10 @@ def _result_to_response(result: dict) -> ChatResponse:
         embedding_model=result["embedding_model"],
         retrieval_strategy=result["retrieval_strategy"],
         chunk_size=result["chunk_size"],
+        retrieval_k=result["retrieval_k"],
         chunks_retrieved=result["chunks_retrieved"],
+        input_tokens=result["input_tokens"],
+        output_tokens=result["output_tokens"],
     )
 
 
@@ -44,7 +47,10 @@ def chat(
             embedding_model=result["embedding_model"],
             retrieval_strategy=result["retrieval_strategy"],
             chunk_size=result["chunk_size"],
+            retrieval_k=result["retrieval_k"],
             chunks_retrieved=result["chunks_retrieved"],
+            input_tokens=result["input_tokens"],
+            output_tokens=result["output_tokens"],
             response_time_ms=result["response_time_ms"],
         )
         db.add(chat_record)
@@ -56,10 +62,31 @@ def chat(
 @router.post("/no-rag", response_model=ChatResponse)
 def chat_no_rag(
     body: ChatRequest,
+    db: Session = Depends(get_db),
     current_user=Depends(get_optional_user),
 ):
     history = [{"role": h.role, "content": h.content} for h in body.history]
     result = rag_service.ask_question_no_rag(body.question, plan_context=body.plan_context, history=history)
+
+    if current_user is not None:
+        chat_record = ChatHistory(
+            user_id=current_user.id,
+            question=body.question,
+            answer=result["answer"],
+            sources=result["sources"],
+            model_used=result["model_used"],
+            embedding_model=result["embedding_model"],
+            retrieval_strategy=result["retrieval_strategy"],
+            chunk_size=result["chunk_size"],
+            retrieval_k=result["retrieval_k"],
+            chunks_retrieved=result["chunks_retrieved"],
+            input_tokens=result["input_tokens"],
+            output_tokens=result["output_tokens"],
+            response_time_ms=result["response_time_ms"],
+        )
+        db.add(chat_record)
+        db.commit()
+
     return _result_to_response(result)
 
 
