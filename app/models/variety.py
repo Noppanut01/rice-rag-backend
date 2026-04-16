@@ -24,6 +24,10 @@ class RiceVariety(Base):
     heading_day = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
 
+    # harvest window สำหรับข้าวไวแสง (MM-DD format เช่น "11-15")
+    harvest_window_start = Column(String, nullable=True)
+    harvest_window_end = Column(String, nullable=True)
+
     # ปุ๋ย — อัตรา (กก./ไร่) สูตรและหมายเหตุ
     fert1_rate = Column(Float, nullable=False)
     fert2_rate = Column(Float, nullable=False)

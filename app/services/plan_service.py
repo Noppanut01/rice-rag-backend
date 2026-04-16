@@ -272,15 +272,18 @@ class PlanService:
         fert2_formula: str = "",
         fert1_note: str = "",
         fert2_note: str = "",
+        is_photoperiod_sensitive: bool = False,
     ) -> tuple[list[dict], dict, date]:
         p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
 
-        # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
-        g_heading = heading_day
-        g_panicle = panicle_initiation_day
+        if is_photoperiod_sensitive and actual_planting_date.month not in [7, 8]:
+            raise ValueError("ข้าวไวแสง (เช่น หอมมะลิ 105) ควรเริ่มปลูกในช่วงเดือน ก.ค. – ส.ค. เพื่อให้เก็บเกี่ยวได้ตรงตามฤดูกาลและได้คุณภาพสูงสุด")
 
+        # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
         g_tillering = tillering_day
+        g_panicle = panicle_initiation_day
+        g_heading = heading_day
 
         # แปลงเป็น absolute day จาก start_date (Day 0) — บวก p ที่เดียว ไม่ซ้ำ
         fert1_day_abs = p + g_tillering
@@ -288,6 +291,10 @@ class PlanService:
         heading_abs = p + g_heading
         harvest_abs = heading_abs + 30  # บังคับ 30 วันหลังออกรวงเสมอ
         drain_abs = harvest_abs - 12  # ระบายน้ำ 12 วันก่อนเก็บเกี่ยว (= 18 วันหลังออกรวง)
+
+        # safety: ป้องกันปุ๋ยสลับลำดับ (กรณีปลูกปลาย ส.ค.)
+        if fert1_day_abs >= fert2_day_abs:
+            fert1_day_abs = fert2_day_abs - 7
 
         raw_tasks = _build_tasks(
             planting_method,

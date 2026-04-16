@@ -68,31 +68,29 @@ def create_plan(
             detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
         )
 
-    if variety.is_photoperiod_sensitive and body.start_date.month not in [5, 6, 7, 8]:
-        raise HTTPException(
-            status_code=400,
-            detail="ข้าวไวแสงควรปลูกในช่วง พ.ค. – ส.ค. เท่านั้น เพราะต้องอาศัยช่วงแสงสั้นในการออกดอกตามธรรมชาติ"
-        )
-
     h = int(variety.harvest_age_days)
     fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
-    tasks, resources, actual_planting_date = plan_service.generate_plan(
-        harvest_age_days=h,
-        planting_method=body.planting_method,
-        start_date=body.start_date,
-        area_rai=body.area_rai,
-        soil_type=body.soil_type,
-        tillering_day=int(variety.tillering_day) if variety.tillering_day is not None else None,
-        panicle_initiation_day=int(variety.panicle_initiation_day) if variety.panicle_initiation_day is not None else None,
-        heading_day=int(variety.heading_day) if variety.heading_day is not None else None,
-        fert1_rate=fert1_rate,
-        fert2_rate=fert2_rate,
-        fert1_formula=fert1_formula,
-        fert2_formula=fert2_formula,
-        fert1_note=fert1_note,
-        fert2_note=fert2_note,
-    )
+    try:
+        tasks, resources, actual_planting_date = plan_service.generate_plan(
+            harvest_age_days=h,
+            planting_method=body.planting_method,
+            start_date=body.start_date,
+            area_rai=body.area_rai,
+            soil_type=body.soil_type,
+            tillering_day=int(variety.tillering_day) if variety.tillering_day is not None else None,
+            panicle_initiation_day=int(variety.panicle_initiation_day) if variety.panicle_initiation_day is not None else None,
+            heading_day=int(variety.heading_day) if variety.heading_day is not None else None,
+            fert1_rate=fert1_rate,
+            fert2_rate=fert2_rate,
+            fert1_formula=fert1_formula,
+            fert2_formula=fert2_formula,
+            fert1_note=fert1_note,
+            fert2_note=fert2_note,
+            is_photoperiod_sensitive=bool(variety.is_photoperiod_sensitive),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     plan = PlantingPlan(
         user_id=current_user.id,
