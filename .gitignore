@@ -20,3 +20,4 @@ uploads/
 # Claude
 .claude/
 CLAUDE_INSTRUCTIONS.md
+experiment_run.py
