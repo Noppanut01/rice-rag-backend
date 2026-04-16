@@ -22,8 +22,7 @@ class RiceVariety(Base):
     tillering_day = Column(Integer, nullable=False)
     panicle_initiation_day = Column(Integer, nullable=False)
     heading_day = Column(Integer, nullable=True)
-    # วันออกดอกตามปฏิทิน รูปแบบ "DD-MM" เช่น "20-11" = 20 พ.ย. (ใช้กับข้าวไวแสงเท่านั้น)
-    heading_calendar = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
 
     # ปุ๋ย — อัตรา (กก./ไร่) สูตรและหมายเหตุ
     fert1_rate = Column(Float, nullable=False)

@@ -28,7 +28,7 @@ def _doc_to_response(doc: Document) -> DocumentResponse:
 
 @router.get("/collections")
 def list_collections(db: Session = Depends(get_db)):
-    varieties = db.query(RiceVariety).all()
+    varieties = db.query(RiceVariety).filter(RiceVariety.is_active == True).all()
     result = [{"value": v.collection_name, "label": v.name} for v in varieties]
     result.append({"value": "general", "label": "ทั่วไป"})
     return result

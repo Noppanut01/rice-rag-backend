@@ -23,7 +23,7 @@ def _task_to_response(t: PlanTask) -> PlanTaskResponse:
     )
 
 
-def _plan_to_response(plan: PlantingPlan, tasks: list, resources: dict, actual_planting_date) -> PlanResponse:
+def _plan_to_response(plan: PlantingPlan, tasks: list, resources: dict, actual_planting_date, is_photoperiod_sensitive: bool = False) -> PlanResponse:
     return PlanResponse(
         id=str(plan.id),
         variety_id=str(plan.variety_id),
@@ -34,6 +34,7 @@ def _plan_to_response(plan: PlantingPlan, tasks: list, resources: dict, actual_p
         plot_name=str(plan.plot_name) if plan.plot_name else None,
         planting_method=str(plan.planting_method),
         soil_type=str(plan.soil_type) if plan.soil_type else "clay",
+        is_photoperiod_sensitive=is_photoperiod_sensitive,
         resources=PlanResources(**resources),
         tasks=[_task_to_response(t) for t in tasks],
         created_at=str(plan.created_at),
@@ -57,7 +58,7 @@ def create_plan(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id).first()
+    variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id, RiceVariety.is_active == True).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
@@ -76,22 +77,6 @@ def create_plan(
     h = int(variety.harvest_age_days)
     fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
-    # ข้าวไวแสง: แปลง heading_calendar "DD-MM" → date object ของปีที่เหมาะสม
-
-
-    heading_calendar_date: date | None = None
-    if variety.heading_calendar:
-        try:
-            cal_d, cal_m = map(int, str(variety.heading_calendar).split("-"))
-            hd = date(body.start_date.year, cal_m, cal_d)
-            # ต้องมีเวลาตั้งต้นอย่างน้อย planting_offset + 100 วัน (ขั้นต่ำที่ข้าวต้องการก่อนออกรวง)
-            min_days = PLANTING_DAY[body.planting_method] + 100
-            if hd <= body.start_date + timedelta(days=min_days):
-                hd = date(body.start_date.year + 1, cal_m, cal_d)
-            heading_calendar_date = hd
-        except (ValueError, TypeError):
-            pass
-
     tasks, resources, actual_planting_date = plan_service.generate_plan(
         harvest_age_days=h,
         planting_method=body.planting_method,
@@ -107,7 +92,6 @@ def create_plan(
         fert2_formula=fert2_formula,
         fert1_note=fert1_note,
         fert2_note=fert2_note,
-        heading_calendar_date=heading_calendar_date,
     )
 
     plan = PlantingPlan(
@@ -137,7 +121,7 @@ def create_plan(
     db.refresh(plan)
 
     plan_tasks = db.query(PlanTask).filter(PlanTask.plan_id == plan.id).order_by(PlanTask.day).all()
-    return _plan_to_response(plan, plan_tasks, resources, actual_planting_date)
+    return _plan_to_response(plan, plan_tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive))
 
 
 @router.get("/", response_model=list[PlanResponse])
@@ -152,7 +136,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         resources = _calculate_resources(str(p.planting_method), float(p.area_rai), soil_type, fert1_rate, fert2_rate, fert1_formula)
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)
-        result.append(_plan_to_response(p, tasks, resources, actual_planting_date))
+        result.append(_plan_to_response(p, tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive) if variety else False))
     return result
 
 

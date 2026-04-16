@@ -272,31 +272,13 @@ class PlanService:
         fert2_formula: str = "",
         fert1_note: str = "",
         fert2_note: str = "",
-        heading_calendar_date: date
-        | None = None,  # วันออกรวงตามปฏิทิน (ข้าวไวแสง) เช่น date(2026, 11, 20)
     ) -> tuple[list[dict], dict, date]:
         p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
 
         # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
-        if heading_calendar_date is not None:
-            # ข้าวไวแสง: heading วันที่แน่นอนตามปฏิทิน
-            # แปลงเป็น offset จากวันลงแปลง = (calendar_date - start_date).days - p
-            heading_abs = (heading_calendar_date - start_date).days
-            g_heading = heading_abs - p
-            g_panicle = (
-                panicle_initiation_day
-                if panicle_initiation_day is not None
-                else g_heading - 30
-            )
-            g_harvest = g_heading + 30  # เก็บเกี่ยวหลังออกรวง 30 วัน
-        else:
-            # ข้าวไม่ไวแสง
-            # NOTE: harvest_age_days ไม่ได้ใช้คำนวณ harvest จริง (harvest_abs = heading + 30 เสมอ)
-            # เก็บไว้เผื่อนำกลับมาใช้ในอนาคต
-            # g_harvest = harvest_age_days
-            g_heading = heading_day
-            g_panicle = panicle_initiation_day
+        g_heading = heading_day
+        g_panicle = panicle_initiation_day
 
         g_tillering = tillering_day
 

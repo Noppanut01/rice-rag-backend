@@ -22,12 +22,11 @@ class RiceVarietyCreate(BaseModel):
     supported_methods: list[str] = ["transplant", "broadcast"]
     tillering_day: int
     panicle_initiation_day: int
-    heading_day: int | None = None        # ไม่ไวแสง: required / ไวแสง: ไม่ใช้
+    heading_day: int
     fert1_rate: float
     fert2_rate: float
     fert1_formula: str
     fert2_formula: str
-    heading_calendar: str | None = None   # เฉพาะข้าวไวแสง รูปแบบ "DD-MM"
     description: str | None = None
     reference_url: str | None = None
     fert1_note: str | None = None
@@ -44,7 +43,6 @@ class RiceVarietyUpdate(BaseModel):
     tillering_day: int | None = None
     panicle_initiation_day: int | None = None
     heading_day: int | None = None
-    heading_calendar: str | None = None
     fert1_rate: float | None = None
     fert2_rate: float | None = None
     fert1_formula: str | None = None
@@ -59,13 +57,13 @@ class RiceVarietyResponse(BaseModel):
     collection_name: str
     harvest_age_days: int
     is_photoperiod_sensitive: bool
+    is_active: bool
     supported_methods: list[str]
     description: str | None
     reference_url: str | None
     tillering_day: int | None
     panicle_initiation_day: int | None
     heading_day: int | None
-    heading_calendar: str | None
     fert1_rate: float | None
     fert2_rate: float | None
     fert1_formula: str | None
@@ -81,13 +79,13 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         collection_name=str(v.collection_name),
         harvest_age_days=int(v.harvest_age_days),
         is_photoperiod_sensitive=bool(v.is_photoperiod_sensitive),
+        is_active=bool(v.is_active),
         supported_methods=list(v.supported_methods),
         description=str(v.description) if v.description else None,
         reference_url=str(v.reference_url) if v.reference_url else None,
         tillering_day=int(v.tillering_day) if v.tillering_day is not None else None,
         panicle_initiation_day=int(v.panicle_initiation_day) if v.panicle_initiation_day is not None else None,
         heading_day=int(v.heading_day) if v.heading_day is not None else None,
-        heading_calendar=str(v.heading_calendar) if v.heading_calendar else None,
         fert1_rate=float(v.fert1_rate) if v.fert1_rate is not None else None,
         fert2_rate=float(v.fert2_rate) if v.fert2_rate is not None else None,
         fert1_formula=str(v.fert1_formula) if v.fert1_formula else None,
@@ -99,7 +97,7 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
 
 @router.get("/", response_model=list[RiceVarietyResponse])
 def list_varieties(db: Session = Depends(get_db)):
-    return [_to_response(v) for v in db.query(RiceVariety).all()]
+    return [_to_response(v) for v in db.query(RiceVariety).filter(RiceVariety.is_active == True).all()]
 
 
 @router.post("/", response_model=RiceVarietyResponse)
@@ -108,13 +106,6 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         raise HTTPException(status_code=400, detail="collection_name ต้องเป็นตัวพิมพ์เล็กและห้ามมีช่องว่าง")
     if db.query(RiceVariety).filter(RiceVariety.collection_name == body.collection_name).first():
         raise HTTPException(status_code=400, detail="collection_name นี้มีอยู่แล้ว")
-
-    if body.is_photoperiod_sensitive:
-        if not body.heading_calendar:
-            raise HTTPException(status_code=400, detail="ข้าวไวแสงต้องระบุวันตั้งท้องและออกรวงตามปฏิทิน (heading_calendar)")
-    else:
-        if body.heading_day is None:
-            raise HTTPException(status_code=400, detail="ข้าวไม่ไวแสงต้องระบุวันตั้งท้องและออกรวง (heading_day)")
 
     variety = RiceVariety(
         name=body.name,
@@ -127,7 +118,6 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         tillering_day=body.tillering_day,
         panicle_initiation_day=body.panicle_initiation_day,
         heading_day=body.heading_day,
-        heading_calendar=body.heading_calendar,
         fert1_rate=body.fert1_rate,
         fert2_rate=body.fert2_rate,
         fert1_formula=body.fert1_formula,
@@ -164,28 +154,6 @@ def delete_variety(variety_id: str, db: Session = Depends(get_db), _=Depends(req
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
-    collection_name = str(variety.collection_name)
-    doc_count = db.query(Document).filter(Document.chroma_collection == collection_name).count()
-    if doc_count > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"ไม่สามารถลบได้ มีเอกสาร {doc_count} ไฟล์ใน collection นี้ — กรุณาลบเอกสารก่อน"
-        )
-
-    # ลบ ChromaDB collection
-    try:
-        import chromadb
-        client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIRECTORY)
-        client.delete_collection(collection_name)
-    except Exception:
-        pass
-    rag_service.vectorstores.pop(collection_name, None)
-
-    # ลบ folder upload
-    folder = Path(settings.UPLOAD_DIR) / collection_name
-    if folder.exists():
-        shutil.rmtree(folder)
-
-    db.delete(variety)
+    variety.is_active = False
     db.commit()
-    return {"detail": f"ลบพันธุ์ข้าว '{variety.name}' และ collection '{collection_name}' เรียบร้อย"}
+    return {"detail": f"ปิดใช้งานพันธุ์ข้าว '{variety.name}' เรียบร้อย (เอกสารและข้อมูลยังคงอยู่)"}

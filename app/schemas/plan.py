@@ -41,6 +41,7 @@ class PlanResponse(BaseModel):
     plot_name: str | None
     planting_method: str
     soil_type: str
+    is_photoperiod_sensitive: bool
     resources: PlanResources
     tasks: list[PlanTaskResponse]
     created_at: str
