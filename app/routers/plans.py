@@ -6,7 +6,7 @@ from app.dependencies import get_current_user, get_db
 from app.models.plan import PlanTask, PlantingPlan
 from app.models.variety import RiceVariety
 from app.schemas.plan import PlanRequest, PlanResources, PlanResponse, PlanTaskResponse
-from app.services.plan_service import PLANTING_DAY, SOIL_FERT1_FORMULA, _calculate_resources, plan_service
+from app.services.plan_service import PLANTING_DAY, plan_service
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -47,8 +47,8 @@ def _resolve_fert(variety: RiceVariety) -> tuple[float, float, str, str, str, st
     fert2_rate = float(variety.fert2_rate)
     fert1_formula = str(variety.fert1_formula)
     fert2_formula = str(variety.fert2_formula)
-    fert1_note = str(variety.fert1_note) if variety.fert1_note else f"แนะนำ {int(fert1_rate)} กก./ไร่"
-    fert2_note = str(variety.fert2_note) if variety.fert2_note else f"แนะนำ {int(fert2_rate)} กก./ไร่"
+    fert1_note = str(variety.fert1_note) if variety.fert1_note else ""
+    fert2_note = str(variety.fert2_note) if variety.fert2_note else ""
     return fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note
 
 
@@ -103,6 +103,7 @@ def create_plan(
         plot_name=body.plot_name,
         planting_method=body.planting_method,
         soil_type=body.soil_type,
+        resources_snapshot=resources,
     )
     db.add(plan)
     db.flush()
@@ -131,9 +132,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
     for p in plans:
         tasks = db.query(PlanTask).filter(PlanTask.plan_id == p.id).order_by(PlanTask.day).all()
         variety = db.query(RiceVariety).filter(RiceVariety.id == p.variety_id).first()
-        soil_type = str(p.soil_type) if p.soil_type else "clay"
-        fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety) if variety else (25.0, 10.0, "", "46-0-0", "", "")
-        resources = _calculate_resources(str(p.planting_method), float(p.area_rai), soil_type, fert1_rate, fert2_rate, fert1_formula)
+        resources = p.resources_snapshot or {}
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)
         result.append(_plan_to_response(p, tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive) if variety else False))

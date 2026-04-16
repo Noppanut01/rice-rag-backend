@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, func, JSON
 
 from app.database import Base
 
@@ -17,6 +17,7 @@ class PlantingPlan(Base):
     plot_name = Column(String, nullable=True)
     planting_method = Column(String, nullable=False, default="transplant")
     soil_type = Column(String, nullable=True, default="clay")  # clay, loam, sandy
+    resources_snapshot = Column(JSON, nullable=True)  # frozen at creation time
     created_at = Column(DateTime, server_default=func.now())
 
 

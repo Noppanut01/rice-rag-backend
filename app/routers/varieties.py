@@ -148,12 +148,36 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
     return _to_response(variety)
 
 
+@router.get("/{variety_id}/stats")
+def get_variety_stats(variety_id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+    variety = db.query(RiceVariety).filter(RiceVariety.id == variety_id).first()
+    if not variety:
+        raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
+    doc_count = db.query(Document).filter(Document.chroma_collection == variety.collection_name).count()
+    return {"doc_count": doc_count, "collection_name": str(variety.collection_name)}
+
+
 @router.delete("/{variety_id}")
 def delete_variety(variety_id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
     variety = db.query(RiceVariety).filter(RiceVariety.id == variety_id).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
-    variety.is_active = False
+    # ลบไฟล์และ documents ที่ผูกกับ collection นี้
+    docs = db.query(Document).filter(Document.chroma_collection == variety.collection_name).all()
+    for doc in docs:
+        try:
+            Path(str(doc.file_path)).unlink(missing_ok=True)
+        except Exception:
+            pass
+        rag_service.delete_document(str(doc.file_path), str(variety.collection_name))
+        db.delete(doc)
+
+    # ลบโฟลเดอร์ uploads/{collection} ถ้าว่างแล้ว
+    collection_dir = Path(settings.UPLOAD_DIR) / str(variety.collection_name)
+    if collection_dir.exists():
+        shutil.rmtree(collection_dir, ignore_errors=True)
+
+    db.delete(variety)
     db.commit()
-    return {"detail": f"ปิดใช้งานพันธุ์ข้าว '{variety.name}' เรียบร้อย (เอกสารและข้อมูลยังคงอยู่)"}
+    return {"detail": f"ลบพันธุ์ข้าว '{variety.name}' และเอกสารที่เกี่ยวข้องทั้งหมดเรียบร้อย"}
