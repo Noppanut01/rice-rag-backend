@@ -31,6 +31,17 @@ class PlanRequest(BaseModel):
     soil_type: str = "clay"  # clay=ดินเหนียว, loam=ดินร่วน, sandy=ดินทราย
 
 
+class PlanUpdateRequest(BaseModel):
+    plot_name: str | None = None
+    area_rai: float | None = None
+    soil_type: str | None = None
+
+
+class PlanCloneRequest(BaseModel):
+    start_date: date
+    plot_name: str | None = None
+
+
 class PlanResponse(BaseModel):
     id: str
     variety_id: str

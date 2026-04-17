@@ -224,7 +224,7 @@ def _build_tasks(
     return tasks
 
 
-def _calculate_resources(
+def calculate_resources(
     planting_method: str,
     area_rai: float,
     soil_type: str,
@@ -258,7 +258,6 @@ def _calculate_resources(
 class PlanService:
     def generate_plan(
         self,
-        harvest_age_days: int,
         planting_method: str,
         start_date: date,
         area_rai: float,
@@ -335,7 +334,7 @@ class PlanService:
             }
             for day, stage, task_name, desc in raw_tasks
         ]
-        resources = _calculate_resources(
+        resources = calculate_resources(
             planting_method,
             area_rai,
             soil_type,

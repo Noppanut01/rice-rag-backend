@@ -5,8 +5,8 @@ from sqlalchemy.orm.session import Session
 from app.dependencies import get_current_user, get_db
 from app.models.plan import PlanTask, PlantingPlan
 from app.models.variety import RiceVariety
-from app.schemas.plan import PlanRequest, PlanResources, PlanResponse, PlanTaskResponse
-from app.services.plan_service import PLANTING_DAY, plan_service
+from app.schemas.plan import PlanCloneRequest, PlanRequest, PlanResources, PlanResponse, PlanTaskResponse, PlanUpdateRequest
+from app.services.plan_service import PLANTING_DAY, calculate_resources, plan_service
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -68,12 +68,10 @@ def create_plan(
             detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
         )
 
-    h = int(variety.harvest_age_days)
     fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
     try:
         tasks, resources, actual_planting_date = plan_service.generate_plan(
-            harvest_age_days=h,
             planting_method=body.planting_method,
             start_date=body.start_date,
             area_rai=body.area_rai,
@@ -159,6 +157,132 @@ def toggle_task(
     db.commit()
     db.refresh(task)
     return _task_to_response(task)
+
+
+@router.patch("/{plan_id}", response_model=PlanResponse)
+def update_plan(
+    plan_id: str,
+    body: PlanUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    plan = db.query(PlantingPlan).filter(
+        PlantingPlan.id == plan_id,
+        PlantingPlan.user_id == current_user.id,
+    ).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="ไม่พบแผน")
+
+    if body.plot_name is not None:
+        plan.plot_name = body.plot_name
+    if body.area_rai is not None:
+        if body.area_rai <= 0:
+            raise HTTPException(status_code=400, detail="พื้นที่ต้องมากกว่า 0")
+        plan.area_rai = body.area_rai
+    if body.soil_type is not None:
+        if body.soil_type not in ["clay", "loam", "sandy"]:
+            raise HTTPException(status_code=400, detail="ประเภทดินไม่ถูกต้อง")
+        plan.soil_type = body.soil_type
+
+    # Recalc resources snapshot (ไม่แตะ tasks เพื่อเก็บ progress เดิม)
+    # ถ้าเปลี่ยนดิน → ใช้สูตรปุ๋ยตามดินใหม่ (soil wins); ไม่เปลี่ยนดิน → คงสูตรพันธุ์เดิม
+    if body.area_rai is not None or body.soil_type is not None:
+        variety = db.query(RiceVariety).filter(RiceVariety.id == plan.variety_id).first()
+        if not variety:
+            raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าวของแผนนี้")
+        fert1_rate, fert2_rate, fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
+        formula_override = "" if body.soil_type is not None else fert1_formula
+        plan.resources_snapshot = calculate_resources(
+            planting_method=str(plan.planting_method),
+            area_rai=float(plan.area_rai),
+            soil_type=str(plan.soil_type),
+            fert1_rate=fert1_rate,
+            fert2_rate=fert2_rate,
+            fert1_formula=formula_override,
+        )
+
+    db.commit()
+    db.refresh(plan)
+
+    tasks = db.query(PlanTask).filter(PlanTask.plan_id == plan.id).order_by(PlanTask.day).all()
+    variety = db.query(RiceVariety).filter(RiceVariety.id == plan.variety_id).first()
+    p_offset = PLANTING_DAY.get(str(plan.planting_method), 0)
+    actual_planting_date = plan.start_date + timedelta(days=p_offset)
+    return _plan_to_response(
+        plan, tasks, plan.resources_snapshot or {}, actual_planting_date,
+        bool(variety.is_photoperiod_sensitive) if variety else False,
+    )
+
+
+@router.post("/{plan_id}/clone", response_model=PlanResponse)
+def clone_plan(
+    plan_id: str,
+    body: PlanCloneRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    src = db.query(PlantingPlan).filter(
+        PlantingPlan.id == plan_id,
+        PlantingPlan.user_id == current_user.id,
+    ).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="ไม่พบแผนต้นฉบับ")
+
+    variety = db.query(RiceVariety).filter(RiceVariety.id == src.variety_id, RiceVariety.is_active == True).first()
+    if not variety:
+        raise HTTPException(status_code=404, detail="พันธุ์ข้าวของแผนต้นฉบับไม่พร้อมใช้งาน")
+
+    fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
+
+    try:
+        tasks, resources, actual_planting_date = plan_service.generate_plan(
+            planting_method=str(src.planting_method),
+            start_date=body.start_date,
+            area_rai=float(src.area_rai),
+            soil_type=str(src.soil_type) if src.soil_type else "clay",
+            tillering_day=int(variety.tillering_day) if variety.tillering_day is not None else None,
+            panicle_initiation_day=int(variety.panicle_initiation_day) if variety.panicle_initiation_day is not None else None,
+            heading_day=int(variety.heading_day) if variety.heading_day is not None else None,
+            fert1_rate=fert1_rate,
+            fert2_rate=fert2_rate,
+            fert1_formula=fert1_formula,
+            fert2_formula=fert2_formula,
+            fert1_note=fert1_note,
+            fert2_note=fert2_note,
+            is_photoperiod_sensitive=bool(variety.is_photoperiod_sensitive),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    new_plan = PlantingPlan(
+        user_id=current_user.id,
+        variety_id=src.variety_id,
+        variety_name=str(src.variety_name),
+        start_date=body.start_date,
+        area_rai=float(src.area_rai),
+        plot_name=body.plot_name if body.plot_name is not None else (f"{src.plot_name} (สำเนา)" if src.plot_name else None),
+        planting_method=str(src.planting_method),
+        soil_type=str(src.soil_type) if src.soil_type else "clay",
+        resources_snapshot=resources,
+    )
+    db.add(new_plan)
+    db.flush()
+
+    for t in tasks:
+        db.add(PlanTask(
+            plan_id=new_plan.id,
+            day=t["day"],
+            stage=t["stage"],
+            task_name=t["task_name"],
+            description=t["description"],
+            date=t["date"],
+        ))
+
+    db.commit()
+    db.refresh(new_plan)
+
+    new_tasks = db.query(PlanTask).filter(PlanTask.plan_id == new_plan.id).order_by(PlanTask.day).all()
+    return _plan_to_response(new_plan, new_tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive))
 
 
 @router.delete("/{plan_id}", status_code=204)
