@@ -31,8 +31,6 @@ class RiceVarietyCreate(BaseModel):
     reference_url: str | None = None
     fert1_note: str | None = None
     fert2_note: str | None = None
-    harvest_window_start: str | None = None
-    harvest_window_end: str | None = None
 
 
 class RiceVarietyUpdate(BaseModel):
@@ -51,8 +49,6 @@ class RiceVarietyUpdate(BaseModel):
     fert2_formula: str | None = None
     fert1_note: str | None = None
     fert2_note: str | None = None
-    harvest_window_start: str | None = None
-    harvest_window_end: str | None = None
 
 
 class RiceVarietyResponse(BaseModel):
@@ -74,8 +70,6 @@ class RiceVarietyResponse(BaseModel):
     fert2_formula: str | None
     fert1_note: str | None
     fert2_note: str | None
-    harvest_window_start: str | None
-    harvest_window_end: str | None
 
 
 def _to_response(v: RiceVariety) -> RiceVarietyResponse:
@@ -98,8 +92,6 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         fert2_formula=str(v.fert2_formula) if v.fert2_formula else None,
         fert1_note=str(v.fert1_note) if v.fert1_note else None,
         fert2_note=str(v.fert2_note) if v.fert2_note else None,
-        harvest_window_start=str(v.harvest_window_start) if v.harvest_window_start else None,
-        harvest_window_end=str(v.harvest_window_end) if v.harvest_window_end else None,
     )
 
 
@@ -132,8 +124,6 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         fert2_formula=body.fert2_formula,
         fert1_note=body.fert1_note,
         fert2_note=body.fert2_note,
-        harvest_window_start=body.harvest_window_start,
-        harvest_window_end=body.harvest_window_end,
     )
     db.add(variety)
     db.commit()

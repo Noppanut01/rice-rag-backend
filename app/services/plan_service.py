@@ -277,8 +277,10 @@ class PlanService:
         p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
 
-        if is_photoperiod_sensitive and actual_planting_date.month not in [7, 8]:
-            raise ValueError("ข้าวไวแสง (เช่น หอมมะลิ 105) ควรเริ่มปลูกในช่วงเดือน ก.ค. – ส.ค. เพื่อให้เก็บเกี่ยวได้ตรงตามฤดูกาลและได้คุณภาพสูงสุด")
+        if is_photoperiod_sensitive and start_date.month not in [7, 8]:
+            raise ValueError(
+                "ข้าวไวแสงควรเริ่มเตรียมงานในช่วงเดือน ก.ค. – ส.ค. เพื่อให้เก็บเกี่ยวได้ตรงตามฤดูกาลและได้คุณภาพสูงสุด"
+            )
 
         # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
         g_tillering = tillering_day
