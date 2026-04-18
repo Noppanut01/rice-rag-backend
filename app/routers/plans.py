@@ -128,7 +128,22 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
     for p in plans:
         tasks = db.query(PlanTask).filter(PlanTask.plan_id == p.id).order_by(PlanTask.day).all()
         variety = db.query(RiceVariety).filter(RiceVariety.id == p.variety_id).first()
-        resources = p.resources_snapshot or {}
+        resources = p.resources_snapshot
+        if not resources:
+            if variety:
+                fert1_rate, fert2_rate, fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
+                resources = calculate_resources(
+                    planting_method=str(p.planting_method),
+                    area_rai=float(p.area_rai),
+                    soil_type=str(p.soil_type) if p.soil_type else "clay",
+                    fert1_rate=fert1_rate,
+                    fert2_rate=fert2_rate,
+                    fert1_formula=fert1_formula,
+                )
+                p.resources_snapshot = resources
+                db.commit()
+            else:
+                resources = {"seed_kg": 0.0, "fertilizer1_kg": 0.0, "fertilizer1_formula": "", "fertilizer2_kg": 0.0, "fertilizer2_formula": ""}
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)
         result.append(_plan_to_response(p, tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive) if variety else False))

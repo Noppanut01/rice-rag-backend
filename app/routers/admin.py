@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm.session import Session
 
 from app.dependencies import get_db, require_admin
@@ -20,6 +20,35 @@ def get_faq(db: Session = Depends(get_db), _=Depends(require_admin)):
         .all()
     )
     return [{"question": row.question, "count": row.count} for row in results]
+
+
+@router.get("/gaps")
+def get_knowledge_gaps(db: Session = Depends(get_db), _=Depends(require_admin)):
+    results = (
+        db.query(
+            ChatHistory.question,
+            func.count(ChatHistory.id).label("count"),
+            func.max(ChatHistory.created_at).label("last_asked_at"),
+        )
+        .filter(
+            or_(
+                ChatHistory.chunks_retrieved == 0,
+                ChatHistory.answer.ilike("%ไม่ทราบ%"),
+            )
+        )
+        .group_by(ChatHistory.question)
+        .order_by(func.count(ChatHistory.id).desc())
+        .limit(20)
+        .all()
+    )
+    return [
+        {
+            "question": row.question,
+            "count": row.count,
+            "last_asked_at": row.last_asked_at.isoformat() if row.last_asked_at else None,
+        }
+        for row in results
+    ]
 
 
 @router.get("/users", response_model=list[UserResponse])
