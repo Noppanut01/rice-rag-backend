@@ -13,6 +13,8 @@ SOIL_FERT_MULTIPLIER: dict[str, float] = {
     "sandy": 1.2,
 }
 
+BROADCAST_SEED_RATE_KG_PER_RAI = 15.0
+
 # วันปลูกจริงตามวิธีปลูก (offset จาก Day 0 = start_date)
 # broadcast: ทำเทือก Day 7 + หว่าน Day 10
 # throw:     ทำเทือก Day 12 + โยน Day 15 (กล้าถาด 15 วัน)
@@ -145,7 +147,7 @@ def _build_tasks(
             ),
         ]
     elif planting_method == "broadcast":
-        seed = round(17.0 * area_rai, 1)
+        seed = round(BROADCAST_SEED_RATE_KG_PER_RAI * area_rai, 1)
         tasks += [
             (
                 0,
@@ -204,13 +206,13 @@ def _build_tasks(
             heading_day,
             "จัดการน้ำ",
             "รักษาระดับน้ำเพื่อสะสมแป้ง",
-            "ขังน้ำระดับ 5-10 ซม. ตลอด 18 วันหลังออกรวง เพื่อส่งเสริมการสร้างน้ำนมและสะสมแป้งในเมล็ด ห้ามปล่อยแปลงแห้ง",
+            "รักษาระดับน้ำประมาณ 10-15 ซม. ช่วงกำเนิดช่อดอกถึงออกดอก และคงความชื้นหลังออกดอกเพื่อช่วยสร้างเมล็ด",
         ),
         (
             drain_day,
             "จัดการน้ำ",
             "ระบายน้ำออกก่อนเกี่ยว",
-            "ระบายน้ำออกจากแปลง 12 วันก่อนเก็บเกี่ยว เพื่อให้เมล็ดสุกสม่ำเสมอ ดินแห้งแข็งพอรับน้ำหนักรถเกี่ยว",
+            "ระบายน้ำออกจากแปลง 10 วันก่อนเก็บเกี่ยว เพื่อให้เมล็ดสุกสม่ำเสมอและดินพร้อมรับรถเกี่ยว",
         ),
         (
             harvest_day,
@@ -236,7 +238,7 @@ def calculate_resources(
     multiplier = SOIL_FERT_MULTIPLIER.get(soil_type, 1.0)
 
     if planting_method == "broadcast":
-        seed = round(17.0 * area_rai, 1)
+        seed = round(BROADCAST_SEED_RATE_KG_PER_RAI * area_rai, 1)
         trays = None
     elif planting_method == "throw":
         seed = round(6.0 * area_rai, 1)
@@ -262,6 +264,7 @@ class PlanService:
         start_date: date,
         area_rai: float,
         soil_type: str,
+        harvest_age_days: int | None,
         tillering_day: int | None,
         panicle_initiation_day: int | None,
         heading_day: int | None,
@@ -276,24 +279,30 @@ class PlanService:
         p = PLANTING_DAY[planting_method]  # offset จาก Day 0 ถึงวันลงแปลง
         actual_planting_date = start_date + timedelta(days=p)
 
-        if is_photoperiod_sensitive and start_date.month not in [7, 8]:
+        if is_photoperiod_sensitive and start_date.month not in [6, 7]:
             raise ValueError(
-                "ข้าวไวแสงควรเริ่มเตรียมงานในช่วงเดือน ก.ค. – ส.ค. เพื่อให้เก็บเกี่ยวได้ตรงตามฤดูกาลและได้คุณภาพสูงสุด"
+                "ข้าวไวแสงควรเริ่มเตรียมงานในช่วงเดือน มิ.ย. – ก.ค. เพื่อให้วันลงแปลงและช่วงเก็บเกี่ยวอยู่ใกล้ฤดูกาลที่เหมาะสม"
             )
 
         # --- Resolve growth stage offsets (นับจากวันลงแปลง) ---
+        g_harvest = harvest_age_days
         g_tillering = tillering_day
         g_panicle = panicle_initiation_day
         g_heading = heading_day
+
+        if None in (g_harvest, g_tillering, g_panicle, g_heading):
+            raise ValueError(
+                "กรุณากำหนดอายุเก็บเกี่ยว วันแตกกอ วันกำเนิดช่อดอก และวันออกรวงของพันธุ์ข้าวให้ครบ"
+            )
 
         # แปลงเป็น absolute day จาก start_date (Day 0) — บวก p ที่เดียว ไม่ซ้ำ
         fert1_day_abs = p + g_tillering
         fert2_day_abs = p + g_panicle
         heading_abs = p + g_heading
-        harvest_abs = heading_abs + 30  # บังคับ 30 วันหลังออกรวงเสมอ
-        drain_abs = harvest_abs - 12  # ระบายน้ำ 12 วันก่อนเก็บเกี่ยว (= 18 วันหลังออกรวง)
+        harvest_abs = p + g_harvest
+        drain_abs = harvest_abs - 10  # ระบายน้ำ 10 วันก่อนเก็บเกี่ยว
 
-        # safety: ป้องกันปุ๋ยสลับลำดับ (กรณีปลูกปลาย ส.ค.)
+        # safety: ป้องกันปุ๋ยสลับลำดับ
         if fert1_day_abs >= fert2_day_abs:
             fert1_day_abs = fert2_day_abs - 7
 

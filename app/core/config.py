@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
     RETRIEVAL_STRATEGY: str = "mmr"  # "similarity" หรือ "mmr"
-    RETRIEVAL_K: int = 3
+    RETRIEVAL_K: int = 5
     LLM_TEMPERATURE: float = 0.3
 
     # ChromaDB

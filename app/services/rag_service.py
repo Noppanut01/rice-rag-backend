@@ -1,17 +1,52 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 
-_STRIP_ASTERISKS = re.compile(r'\*+')
+_STRIP_ASTERISKS = re.compile(r"\*+")
 
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
+from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.core.config import settings
+
+
+def _normalize_prompt_suggestions(items: list[dict]) -> list[dict]:
+    suggestions: list[dict] = []
+    seen: set[str] = set()
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        title = _STRIP_ASTERISKS.sub("", str(item.get("title", ""))).strip(" -\n\t")
+        content = _STRIP_ASTERISKS.sub("", str(item.get("content", ""))).strip(" -\n\t")
+        title = re.sub(r"\s+", " ", title)
+        content = re.sub(r"\s+", " ", content)
+
+        if not title or not content:
+            continue
+        if len(title) > 45 or len(content) > 200:
+            continue
+        if not content.endswith("?"):
+            content = f"{content}?"
+
+        key = content.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestions.append({"title": title, "content": content})
+
+        if len(suggestions) == 5:
+            break
+
+    return suggestions
 
 
 class RAGService:
@@ -36,7 +71,10 @@ class RAGService:
             return ""
         recent = history[-10:]
         lines = "".join(
-            ("ผู้ใช้" if msg.get("role") == "user" else "ระบบ") + ": " + str(msg.get("content")) + "\n"
+            ("ผู้ใช้" if msg.get("role") == "user" else "ระบบ")
+            + ": "
+            + str(msg.get("content"))
+            + "\n"
             for msg in recent
         )
         return f"ประวัติการสนทนาก่อนหน้า:\n{lines}\n"
@@ -60,7 +98,9 @@ class RAGService:
                 if vs._collection.count() == 0:
                     continue
                 if settings.RETRIEVAL_STRATEGY == "mmr":
-                    docs = vs.max_marginal_relevance_search(question, k=settings.RETRIEVAL_K, fetch_k=10)
+                    docs = vs.max_marginal_relevance_search(
+                        question, k=settings.RETRIEVAL_K, fetch_k=10
+                    )
                 else:
                     docs = vs.similarity_search(question, k=settings.RETRIEVAL_K)
                 all_docs.extend(docs)
@@ -73,18 +113,47 @@ class RAGService:
             if key not in seen:
                 seen.add(key)
                 unique.append(doc)
-        return unique[:settings.RETRIEVAL_K * 2]
+        return unique[: settings.RETRIEVAL_K * 2]
+
+    def _load_pdf_documents(self, file_path: str) -> list[Document]:
+        pdftotext = shutil.which("pdftotext")
+        if pdftotext:
+            try:
+                result = subprocess.run(
+                    [pdftotext, file_path, "-"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                text = result.stdout.strip()
+                if len(re.sub(r"\s+", "", text)) >= 50:
+                    return [
+                        Document(
+                            page_content=text,
+                            metadata={
+                                "source": os.path.abspath(file_path),
+                                "title": os.path.basename(file_path),
+                                "extraction_method": "pdftotext",
+                            },
+                        )
+                    ]
+            except Exception:
+                pass
+
+        return PyPDFLoader(file_path).load()
 
     def ingest_document(self, file_path: str, collection_name: str) -> str:
         file_path = os.path.abspath(file_path)
         if file_path.endswith(".pdf"):
-            loader = PyPDFLoader(file_path)
+            docs = self._load_pdf_documents(file_path)
         elif file_path.endswith(".docx"):
             loader = Docx2txtLoader(file_path)
+            docs = loader.load()
         else:
             loader = TextLoader(file_path, encoding="utf-8")
+            docs = loader.load()
 
-        docs = loader.load()
         chunks = self.splitter.split_documents(docs)
         if collection_name not in self.vectorstores:
             self.vectorstores[collection_name] = Chroma(
@@ -95,7 +164,13 @@ class RAGService:
         self.vectorstores[collection_name].add_documents(chunks)
         return collection_name
 
-    def ask_question(self, question: str, plan_context: str | None = None, collection: str | None = None, history: list[dict] | None = None) -> dict:
+    def ask_question(
+        self,
+        question: str,
+        plan_context: str | None = None,
+        collection: str | None = None,
+        history: list[dict] | None = None,
+    ) -> dict:
         start = time.time()
 
         all_collections = list(self.vectorstores.keys())
@@ -121,18 +196,33 @@ class RAGService:
 
         prompt = PromptTemplate(
             template=(
-                "ใช้ข้อมูลด้านล่างตอบคำถามอ้างอิงกับประวัติการสนทนา ถ้าไม่มีข้อมูลให้บอกว่าไม่ทราบ\n"
-                "ตอบเป็นภาษาไทย ไม่เกิน 5 ประโยค\n\n"
+                "คุณคือ AI ผู้ช่วยด้านการปลูกข้าว\n"
+                "กฎในการตอบคำถาม:\n"
+                "1. ให้ตอบโดยอ้างอิงจากข้อมูลสนับสนุน (Context) เป็นหลัก\n"
+                "2. ถ้า Context มีข้อมูลที่เกี่ยวข้อง ให้ใช้ข้อมูลนั้นก่อน และห้ามตอบขัดแย้งกับ Context\n"
+                "3. ต้องตอบให้ตรงเงื่อนไขสำคัญในคำถาม เช่น พันธุ์ สถานที่ วิธีปลูก โรค สารเคมี อัตรา หรือช่วงเวลา\n"
+                "4. ถ้า Context ไม่มีคำตอบตรงเงื่อนไขสำคัญ หรือมีเพียงข้อมูลใกล้เคียง ให้บอกส่วนที่พบจาก Context และตอบคำแนะนำทั่วไปได้เฉพาะเบื้องต้น\n"
+                "5. หากตอบจากความรู้ทั่วไป ต้องต่อท้ายคำตอบด้วยข้อความนี้เสมอ: [หมายเหตุ: คำตอบนี้ใช้ความรู้ทั่วไป เนื่องจากไม่พบในเอกสารอ้างอิง]\n"
+                "6. ห้ามแต่งตัวเลขเฉพาะ เช่น อายุเก็บเกี่ยว อัตราปุ๋ย ปริมาณสารเคมี หรือช่วงวันที่ หากไม่มีใน Context\n"
+                "7. ตอบเป็นภาษาไทย กระชับ เข้าใจง่าย ไม่เกิน 5 ประโยค\n\n"
                 "{history_text}"
-                "ข้อมูลที่เกี่ยวข้อง:\n{context}\n\n"
+                "ข้อมูลสนับสนุน (Context):\n{context}\n\n"
                 "คำถามปัจจุบัน: {question}\n"
                 "คำตอบ:"
             ),
             input_variables=["context", "question", "history_text"],
         )
-        raw = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
-        usage = raw.response_metadata.get("usage_metadata", {}) if hasattr(raw, "response_metadata") else {}
-        answer = _STRIP_ASTERISKS.sub('', str(raw.content) if hasattr(raw, 'content') else raw).strip()
+        raw = (prompt | self.llm).invoke(
+            {"context": context, "question": question, "history_text": history_text}
+        )
+        usage = (
+            raw.response_metadata.get("usage_metadata", {})
+            if hasattr(raw, "response_metadata")
+            else {}
+        )
+        answer = _STRIP_ASTERISKS.sub(
+            "", str(raw.content) if hasattr(raw, "content") else raw
+        ).strip()
 
         return {
             "answer": answer,
@@ -151,15 +241,25 @@ class RAGService:
     def generate_prompt_suggestions(self) -> list[dict]:
         query = "การปลูกข้าว การดูแลรักษา ปุ๋ย โรคและแมลง การจัดการน้ำ การเก็บเกี่ยว"
         docs = self._search(list(self.vectorstores.keys()), query)
-        context = "\n\n".join([doc.page_content for doc in docs])
+        context = "\n\n".join([doc.page_content for doc in docs])[:12000]
 
         prompt = PromptTemplate(
             template=(
-                "จากเนื้อหาต่อไปนี้ สร้างคำถามที่มีประโยชน์สำหรับเกษตรกรผู้ปลูกข้าว 5 ข้อ\n"
-                "แต่ละข้อมี title (ชื่อสั้นๆ) และ content (คำถามเต็ม)\n"
-                "ตอบเป็น JSON array เท่านั้น ห้ามมีข้อความอื่น ห้ามมี markdown\n\n"
+                "คุณคือผู้ช่วยออกแบบ prompt template สำหรับแชตบอทผู้เชี่ยวชาญเรื่องข้าว\n"
+                "Prompt template ในระบบนี้คือคำถามตัวอย่างที่ผู้ใช้กดแล้วจะถูกใส่ในช่องแชต "
+                "ไม่ใช่ system prompt และไม่ใช่คำตอบ\n\n"
+                "ให้สร้างคำถามแนะนำ 5 รายการสำหรับเกษตรกรผู้ปลูกข้าว โดยอิงจากเนื้อหาที่ให้มา "
+                "ถ้าเนื้อหามีน้อย ให้ใช้หัวข้อความรู้พื้นฐานด้านการปลูกข้าว\n\n"
+                "กฎการสร้าง:\n"
+                "- ใช้ภาษาไทยเท่านั้น\n"
+                "- title ต้องเป็นชื่อสั้น 2-5 คำ เช่น การใส่ปุ๋ย, โรคข้าว, จัดการน้ำ\n"
+                "- content ต้องเป็นคำถามเดียวที่เกษตรกรจะถามจริง ความยาวไม่เกิน 120 ตัวอักษร และลงท้ายด้วยเครื่องหมาย ?\n"
+                "- ห้ามเขียนคำตอบ ห้ามอธิบาย ห้ามใส่ markdown ห้ามใส่ placeholder\n"
+                "- แต่ละรายการต้องถามคนละประเด็น เช่น พันธุ์ข้าว วันที่ปลูก วิธีปลูก ปุ๋ย น้ำ โรคแมลง หรือเก็บเกี่ยว\n"
+                '- ห้ามสร้างคำถามซ้ำหรือกว้างเกินไป เช่น "ปลูกข้าวอย่างไร?"\n\n'
+                "ตอบเป็น JSON array เท่านั้น โดยใช้ schema นี้เท่านั้น:\n"
+                '[{{"title":"ชื่อสั้น","content":"คำถามเต็ม?"}}]\n\n'
                 "เนื้อหา:\n{context}\n\n"
-                'ตัวอย่าง output: [{{"title": "การใส่ปุ๋ย", "content": "ควรใส่ปุ๋ยข้าวหอมมะลิตอนไหนและใช้ปุ๋ยชนิดใด?"}}, ...]\n\n'
                 "JSON:"
             ),
             input_variables=["context"],
@@ -167,22 +267,45 @@ class RAGService:
         llm_creative = ChatGoogleGenerativeAI(
             model=settings.GEMINI_MODEL,
             google_api_key=settings.GEMINI_API_KEY,
-            temperature=0.7,
+            temperature=0.4,
         )
         raw = (prompt | llm_creative).invoke({"context": context})
-        raw = str(raw.content) if hasattr(raw, 'content') else raw
+        raw = str(raw.content) if hasattr(raw, "content") else raw
         raw = raw.strip()
 
         try:
-            match = re.search(r'\[.*\]', raw, re.DOTALL)
+            match = re.search(r"\[.*\]", raw, re.DOTALL)
             if match:
                 result = json.loads(match.group())
-                return [r for r in result if isinstance(r, dict) and "title" in r and "content" in r]
+                return _normalize_prompt_suggestions(result)
         except Exception:
             pass
-        return []
+        return [
+            {
+                "title": "เลือกพันธุ์ข้าว",
+                "content": "ควรเลือกพันธุ์ข้าวแบบใดให้เหมาะกับพื้นที่และฤดูกาลปลูก?",
+            },
+            {
+                "title": "วันที่ปลูก",
+                "content": "ควรเริ่มปลูกข้าวช่วงเดือนไหนจึงเหมาะกับพันธุ์ที่ไวต่อช่วงแสง?",
+            },
+            {"title": "การใส่ปุ๋ย", "content": "ควรใส่ปุ๋ยข้าวช่วงใดและใช้สูตรปุ๋ยอะไรจึงเหมาะสม?"},
+            {
+                "title": "จัดการน้ำ",
+                "content": "ควรจัดการระดับน้ำในนาอย่างไรในแต่ละช่วงการเจริญเติบโตของข้าว?",
+            },
+            {
+                "title": "โรคและแมลง",
+                "content": "ถ้าข้าวมีอาการผิดปกติควรตรวจโรคหรือแมลงศัตรูข้าวอย่างไร?",
+            },
+        ]
 
-    def ask_question_no_rag(self, question: str, plan_context: str | None = None, history: list[dict] | None = None) -> dict:
+    def ask_question_no_rag(
+        self,
+        question: str,
+        plan_context: str | None = None,
+        history: list[dict] | None = None,
+    ) -> dict:
         start = time.time()
 
         context = plan_context if plan_context else ""
@@ -199,9 +322,17 @@ class RAGService:
             ),
             input_variables=["context", "question", "history_text"],
         )
-        raw = (prompt | self.llm).invoke({"context": context, "question": question, "history_text": history_text})
-        usage = raw.response_metadata.get("usage_metadata", {}) if hasattr(raw, "response_metadata") else {}
-        answer = _STRIP_ASTERISKS.sub('', str(raw.content) if hasattr(raw, 'content') else raw).strip()
+        raw = (prompt | self.llm).invoke(
+            {"context": context, "question": question, "history_text": history_text}
+        )
+        usage = (
+            raw.response_metadata.get("usage_metadata", {})
+            if hasattr(raw, "response_metadata")
+            else {}
+        )
+        answer = _STRIP_ASTERISKS.sub(
+            "", str(raw.content) if hasattr(raw, "content") else raw
+        ).strip()
 
         return {
             "answer": answer,

@@ -95,6 +95,24 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
     )
 
 
+def _validate_growth_stages(
+    harvest_age_days: int | None,
+    tillering_day: int | None,
+    panicle_initiation_day: int | None,
+    heading_day: int | None,
+) -> None:
+    if None in (harvest_age_days, tillering_day, panicle_initiation_day, heading_day):
+        raise HTTPException(
+            status_code=400,
+            detail="กรุณากรอกอายุเก็บเกี่ยว วันแตกกอ วันกำเนิดช่อดอก และวันออกรวงให้ครบ",
+        )
+    if not (0 <= tillering_day < panicle_initiation_day < heading_day < harvest_age_days):
+        raise HTTPException(
+            status_code=400,
+            detail="ระยะการเจริญเติบโตต้องเรียงลำดับ: แตกกอ < กำเนิดช่อดอก < ออกรวง < อายุเก็บเกี่ยว",
+        )
+
+
 @router.get("/", response_model=list[RiceVarietyResponse])
 def list_varieties(db: Session = Depends(get_db)):
     return [_to_response(v) for v in db.query(RiceVariety).filter(RiceVariety.is_active == True).all()]
@@ -106,6 +124,12 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         raise HTTPException(status_code=400, detail="collection_name ต้องเป็นตัวพิมพ์เล็กและห้ามมีช่องว่าง")
     if db.query(RiceVariety).filter(RiceVariety.collection_name == body.collection_name).first():
         raise HTTPException(status_code=400, detail="collection_name นี้มีอยู่แล้ว")
+    _validate_growth_stages(
+        body.harvest_age_days,
+        body.tillering_day,
+        body.panicle_initiation_day,
+        body.heading_day,
+    )
 
     variety = RiceVariety(
         name=body.name,
@@ -140,7 +164,22 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
-    for field, val in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    harvest_age_days = updates.get("harvest_age_days", variety.harvest_age_days)
+    tillering_day = updates.get("tillering_day", variety.tillering_day)
+    panicle_initiation_day = updates.get(
+        "panicle_initiation_day",
+        variety.panicle_initiation_day,
+    )
+    heading_day = updates.get("heading_day", variety.heading_day)
+    _validate_growth_stages(
+        int(harvest_age_days) if harvest_age_days is not None else None,
+        int(tillering_day) if tillering_day is not None else None,
+        int(panicle_initiation_day) if panicle_initiation_day is not None else None,
+        int(heading_day) if heading_day is not None else None,
+    )
+
+    for field, val in updates.items():
         setattr(variety, field, val)
 
     db.commit()

@@ -52,6 +52,10 @@ def _resolve_fert(variety: RiceVariety) -> tuple[float, float, str, str, str, st
     return fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note
 
 
+# Empty string tells plan_service to choose fertilizer 1 formula from soil_type.
+FERT1_FORMULA_FROM_SOIL = ""
+
+
 @router.post("/", response_model=PlanResponse)
 def create_plan(
     body: PlanRequest,
@@ -68,7 +72,7 @@ def create_plan(
             detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
         )
 
-    fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
+    fert1_rate, fert2_rate, _fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
     try:
         tasks, resources, actual_planting_date = plan_service.generate_plan(
@@ -76,12 +80,13 @@ def create_plan(
             start_date=body.start_date,
             area_rai=body.area_rai,
             soil_type=body.soil_type,
+            harvest_age_days=int(variety.harvest_age_days) if variety.harvest_age_days is not None else None,
             tillering_day=int(variety.tillering_day) if variety.tillering_day is not None else None,
             panicle_initiation_day=int(variety.panicle_initiation_day) if variety.panicle_initiation_day is not None else None,
             heading_day=int(variety.heading_day) if variety.heading_day is not None else None,
             fert1_rate=fert1_rate,
             fert2_rate=fert2_rate,
-            fert1_formula=fert1_formula,
+            fert1_formula=FERT1_FORMULA_FROM_SOIL,
             fert2_formula=fert2_formula,
             fert1_note=fert1_note,
             fert2_note=fert2_note,
@@ -131,14 +136,14 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         resources = p.resources_snapshot
         if not resources:
             if variety:
-                fert1_rate, fert2_rate, fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
+                fert1_rate, fert2_rate, _fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
                 resources = calculate_resources(
                     planting_method=str(p.planting_method),
                     area_rai=float(p.area_rai),
                     soil_type=str(p.soil_type) if p.soil_type else "clay",
                     fert1_rate=fert1_rate,
                     fert2_rate=fert2_rate,
-                    fert1_formula=fert1_formula,
+                    fert1_formula=FERT1_FORMULA_FROM_SOIL,
                 )
                 p.resources_snapshot = resources
                 db.commit()
@@ -205,15 +210,14 @@ def update_plan(
         variety = db.query(RiceVariety).filter(RiceVariety.id == plan.variety_id).first()
         if not variety:
             raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าวของแผนนี้")
-        fert1_rate, fert2_rate, fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
-        formula_override = "" if body.soil_type is not None else fert1_formula
+        fert1_rate, fert2_rate, _fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
         plan.resources_snapshot = calculate_resources(
             planting_method=str(plan.planting_method),
             area_rai=float(plan.area_rai),
             soil_type=str(plan.soil_type),
             fert1_rate=fert1_rate,
             fert2_rate=fert2_rate,
-            fert1_formula=formula_override,
+            fert1_formula=FERT1_FORMULA_FROM_SOIL,
         )
 
     db.commit()
@@ -247,7 +251,7 @@ def clone_plan(
     if not variety:
         raise HTTPException(status_code=404, detail="พันธุ์ข้าวของแผนต้นฉบับไม่พร้อมใช้งาน")
 
-    fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
+    fert1_rate, fert2_rate, _fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
     try:
         tasks, resources, actual_planting_date = plan_service.generate_plan(
@@ -255,12 +259,13 @@ def clone_plan(
             start_date=body.start_date,
             area_rai=float(src.area_rai),
             soil_type=str(src.soil_type) if src.soil_type else "clay",
+            harvest_age_days=int(variety.harvest_age_days) if variety.harvest_age_days is not None else None,
             tillering_day=int(variety.tillering_day) if variety.tillering_day is not None else None,
             panicle_initiation_day=int(variety.panicle_initiation_day) if variety.panicle_initiation_day is not None else None,
             heading_day=int(variety.heading_day) if variety.heading_day is not None else None,
             fert1_rate=fert1_rate,
             fert2_rate=fert2_rate,
-            fert1_formula=fert1_formula,
+            fert1_formula=FERT1_FORMULA_FROM_SOIL,
             fert2_formula=fert2_formula,
             fert1_note=fert1_note,
             fert2_note=fert2_note,

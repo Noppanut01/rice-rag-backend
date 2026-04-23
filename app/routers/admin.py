@@ -34,6 +34,8 @@ def get_knowledge_gaps(db: Session = Depends(get_db), _=Depends(require_admin)):
             or_(
                 ChatHistory.chunks_retrieved == 0,
                 ChatHistory.answer.ilike("%ไม่ทราบ%"),
+                ChatHistory.answer.ilike("%ไม่พบในเอกสารอ้างอิง%"),
+                ChatHistory.answer.ilike("%คำตอบนี้ใช้ความรู้ทั่วไป%"),
             )
         )
         .group_by(ChatHistory.question)
