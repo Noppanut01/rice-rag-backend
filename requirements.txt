@@ -4,7 +4,6 @@ uvicorn[standard]==0.34.0
 
 # ===== Database =====
 sqlalchemy==2.0.36
-alembic==1.14.0
 psycopg2-binary==2.9.10
 
 # ===== Auth =====
@@ -27,6 +26,3 @@ langchain-google-genai==2.1.12
 # ===== Document Loaders =====
 pypdf==5.1.0
 docx2txt==0.8
-
-# ===== Monitoring =====
-psutil==6.1.1

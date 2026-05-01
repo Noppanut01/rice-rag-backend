@@ -41,15 +41,14 @@ def _plan_to_response(plan: PlantingPlan, tasks: list, resources: dict, actual_p
     )
 
 
-def _resolve_fert(variety: RiceVariety) -> tuple[float, float, str, str, str, str]:
-    """Returns (fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note)"""
+def _resolve_fert(variety: RiceVariety) -> tuple[float, float, str, str, str]:
+    """Returns (fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note)."""
     fert1_rate = float(variety.fert1_rate)
     fert2_rate = float(variety.fert2_rate)
-    fert1_formula = str(variety.fert1_formula)
     fert2_formula = str(variety.fert2_formula)
     fert1_note = str(variety.fert1_note) if variety.fert1_note else ""
     fert2_note = str(variety.fert2_note) if variety.fert2_note else ""
-    return fert1_rate, fert2_rate, fert1_formula, fert2_formula, fert1_note, fert2_note
+    return fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note
 
 
 # Empty string tells plan_service to choose fertilizer 1 formula from soil_type.
@@ -72,7 +71,7 @@ def create_plan(
             detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
         )
 
-    fert1_rate, fert2_rate, _fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
+    fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
     try:
         tasks, resources, actual_planting_date = plan_service.generate_plan(
@@ -136,7 +135,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         resources = p.resources_snapshot
         if not resources:
             if variety:
-                fert1_rate, fert2_rate, _fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
+                fert1_rate, fert2_rate, fert2_formula, _f1n, _f2n = _resolve_fert(variety)
                 resources = calculate_resources(
                     planting_method=str(p.planting_method),
                     area_rai=float(p.area_rai),
@@ -144,6 +143,7 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
                     fert1_rate=fert1_rate,
                     fert2_rate=fert2_rate,
                     fert1_formula=FERT1_FORMULA_FROM_SOIL,
+                    fert2_formula=fert2_formula,
                 )
                 p.resources_snapshot = resources
                 db.commit()
@@ -205,12 +205,12 @@ def update_plan(
         plan.soil_type = body.soil_type
 
     # Recalc resources snapshot (ไม่แตะ tasks เพื่อเก็บ progress เดิม)
-    # ถ้าเปลี่ยนดิน → ใช้สูตรปุ๋ยตามดินใหม่ (soil wins); ไม่เปลี่ยนดิน → คงสูตรพันธุ์เดิม
+    # สูตรปุ๋ยช่วงแตกกอยึดตาม soil_type ของแผนเสมอ (soil wins)
     if body.area_rai is not None or body.soil_type is not None:
         variety = db.query(RiceVariety).filter(RiceVariety.id == plan.variety_id).first()
         if not variety:
             raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าวของแผนนี้")
-        fert1_rate, fert2_rate, _fert1_formula, _f2f, _f1n, _f2n = _resolve_fert(variety)
+        fert1_rate, fert2_rate, fert2_formula, _f1n, _f2n = _resolve_fert(variety)
         plan.resources_snapshot = calculate_resources(
             planting_method=str(plan.planting_method),
             area_rai=float(plan.area_rai),
@@ -218,6 +218,7 @@ def update_plan(
             fert1_rate=fert1_rate,
             fert2_rate=fert2_rate,
             fert1_formula=FERT1_FORMULA_FROM_SOIL,
+            fert2_formula=fert2_formula,
         )
 
     db.commit()
@@ -251,7 +252,7 @@ def clone_plan(
     if not variety:
         raise HTTPException(status_code=404, detail="พันธุ์ข้าวของแผนต้นฉบับไม่พร้อมใช้งาน")
 
-    fert1_rate, fert2_rate, _fert1_formula, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
+    fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
     try:
         tasks, resources, actual_planting_date = plan_service.generate_plan(

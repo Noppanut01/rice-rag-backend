@@ -129,29 +129,17 @@ Frontend decode JWT เอาเพื่อได้ username และ role �
 ## POST /plans/
 
 สร้างแผนการปลูกข้าว — ต้อง login
-Frontend generate tasks ด้วย planGenerator.ts แล้วส่งมาพร้อมกัน
-
-> **TODO (feature/rag-plan-generation)**: เมื่อมี PDF พร้อมแล้ว
-> จะเปลี่ยนให้ backend generate tasks ด้วย RAG แทน
-> frontend จะส่งแค่ข้อมูลพื้นฐาน ไม่ส่ง tasks
+Backend generate tasks/resources จากพันธุ์ข้าว วิธีปลูก พื้นที่ และชนิดดิน
 
 **Request**
 ```json
 {
   "plot_name": "string | null",
   "variety_id": "string",
-  "variety_name": "string",
   "start_date": "YYYY-MM-DD",
   "area_rai": 0.0,
-  "tasks": [
-    {
-      "day": 1,
-      "stage": "string",
-      "task_name": "string",
-      "description": "string | null",
-      "date": "YYYY-MM-DD"
-    }
-  ]
+  "planting_method": "transplant | broadcast | throw",
+  "soil_type": "clay | loam | sandy"
 }
 ```
 
@@ -162,8 +150,20 @@ Frontend generate tasks ด้วย planGenerator.ts แล้วส่งม�
   "variety_id": "string",
   "variety_name": "string",
   "start_date": "string",
+  "actual_planting_date": "string",
   "area_rai": 0.0,
   "plot_name": "string | null",
+  "planting_method": "transplant",
+  "soil_type": "clay",
+  "is_photoperiod_sensitive": false,
+  "resources": {
+    "seed_kg": 0.0,
+    "fertilizer1_kg": 0.0,
+    "fertilizer1_formula": "16-20-0",
+    "fertilizer2_kg": 0.0,
+    "fertilizer2_formula": "46-0-0",
+    "seedling_trays": null
+  },
   "tasks": [
     {
       "id": "uuid",
@@ -179,8 +179,14 @@ Frontend generate tasks ด้วย planGenerator.ts แล้วส่งม�
 }
 ```
 
+หมายเหตุ:
+- `fertilizer1_formula` เลือกจาก `soil_type`: `clay` = `16-20-0`, `loam`/`sandy` = `16-16-8`
+- `fertilizer2_formula` มาจากข้อมูลพันธุ์ข้าว
+
 **Error**
 - `401` — ไม่ได้ login
+- `400` — วิธีปลูกไม่รองรับ, ข้อมูลพันธุ์ไม่ครบ, หรือช่วงปลูกข้าวไวแสงไม่เหมาะสม
+- `404` — ไม่พบพันธุ์ข้าว
 
 ---
 
@@ -203,6 +209,48 @@ toggle task เสร็จ/ยังไม่เสร็จ — ต้อง l
 
 ---
 
+## PATCH /plans/{plan_id}
+
+แก้ชื่อแปลง พื้นที่ หรือชนิดดิน — ต้อง login เจ้าของแผน
+ถ้าแก้ `area_rai` หรือ `soil_type` จะคำนวณ `resources` ใหม่ แต่ไม่ล้าง tasks/checklist
+
+**Request**
+```json
+{
+  "plot_name": "string | null",
+  "area_rai": 0.0,
+  "soil_type": "clay | loam | sandy"
+}
+```
+
+**Response 200** — PlanResponse
+
+**Error**
+- `400` — พื้นที่ต้องมากกว่า 0 หรือชนิดดินไม่ถูกต้อง
+- `404` — ไม่พบแผน
+
+---
+
+## POST /plans/{plan_id}/clone
+
+คัดลอกแผนเดิมโดยใช้วันเริ่มต้นใหม่ — ต้อง login เจ้าของแผน
+
+**Request**
+```json
+{
+  "start_date": "YYYY-MM-DD",
+  "plot_name": "string | null"
+}
+```
+
+**Response 200** — PlanResponse ใหม่ พร้อม tasks/resources ที่ generate จากวันเริ่มต้นใหม่
+
+**Error**
+- `400` — ข้อมูลพันธุ์/ช่วงปลูกไม่ถูกต้อง
+- `404` — ไม่พบแผนต้นฉบับ หรือพันธุ์ข้าวไม่พร้อมใช้งาน
+
+---
+
 ## DELETE /plans/{plan_id}
 
 ลบแผนพร้อม tasks ทั้งหมด — ต้อง login เจ้าของแผนเท่านั้น
@@ -211,6 +259,118 @@ toggle task เสร็จ/ยังไม่เสร็จ — ต้อง l
 
 **Error**
 - `404` — ไม่พบแผน
+
+---
+
+## GET /varieties/
+
+ดูพันธุ์ข้าวที่ active อยู่ — public
+
+**Response 200**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "string",
+    "collection_name": "string",
+    "harvest_age_days": 120,
+    "is_photoperiod_sensitive": false,
+    "is_active": true,
+    "supported_methods": ["transplant", "broadcast"],
+    "description": "string | null",
+    "reference_url": "string | null",
+    "tillering_day": 25,
+    "panicle_initiation_day": 55,
+    "heading_day": 80,
+    "fert1_rate": 20.0,
+    "fert2_rate": 10.0,
+    "fert2_formula": "46-0-0",
+    "fert1_note": "string | null",
+    "fert2_note": "string | null"
+  }
+]
+```
+
+`fert1_formula` ไม่ expose ใน API แล้ว เพราะสูตรช่วงแตกกอคำนวณจากชนิดดินของแผน
+
+---
+
+## POST /varieties/
+
+สร้างพันธุ์ข้าว — ต้องเป็น admin
+
+**Request**
+```json
+{
+  "name": "string",
+  "collection_name": "string",
+  "harvest_age_days": 120,
+  "is_photoperiod_sensitive": false,
+  "supported_methods": ["transplant", "broadcast"],
+  "tillering_day": 25,
+  "panicle_initiation_day": 55,
+  "heading_day": 80,
+  "fert1_rate": 20.0,
+  "fert2_rate": 10.0,
+  "fert2_formula": "46-0-0",
+  "description": "string | null",
+  "reference_url": "string | null",
+  "fert1_note": "string | null",
+  "fert2_note": "string | null"
+}
+```
+
+**Response 200** — RiceVarietyResponse
+
+**Error**
+- `400` — collection ซ้ำ/รูปแบบไม่ถูกต้อง, ระยะการเจริญเติบโตไม่เรียงลำดับ, หรือข้อมูลปุ๋ยไม่ครบ
+- `403` — ไม่ใช่ admin
+
+---
+
+## PUT /varieties/{variety_id}
+
+แก้พันธุ์ข้าว — ต้องเป็น admin
+
+**Request** — ส่งเฉพาะ field ที่ต้องการแก้ได้ โครงสร้างเหมือน `POST /varieties/`
+
+**Response 200** — RiceVarietyResponse
+
+**Error**
+- `400` — validation ไม่ผ่าน
+- `403` — ไม่ใช่ admin
+- `404` — ไม่พบพันธุ์ข้าว
+
+---
+
+## GET /varieties/{variety_id}/stats
+
+ดูจำนวนเอกสารที่ผูกกับ collection ของพันธุ์ข้าว — ต้องเป็น admin
+
+**Response 200**
+```json
+{
+  "doc_count": 0,
+  "collection_name": "string"
+}
+```
+
+---
+
+## DELETE /varieties/{variety_id}
+
+ลบพันธุ์ข้าวพร้อมเอกสารใน collection นั้น — ต้องเป็น admin
+
+**Response 200**
+```json
+{
+  "detail": "ลบพันธุ์ข้าว 'string' และเอกสารที่เกี่ยวข้องทั้งหมดเรียบร้อย"
+}
+```
+
+**Error**
+- `403` — ไม่ใช่ admin
+- `404` — ไม่พบพันธุ์ข้าว
 
 ---
 
@@ -366,19 +526,30 @@ files: File[]   (รองรับ .pdf .txt .docx, ส่งได้หลา
 | POST /chat/ | ✅ (ไม่บันทึก) | ✅ | ✅ |
 | POST /chat/no-rag | ✅ | ✅ | ✅ |
 | GET /chat/history | ❌ | ✅ | ✅ |
+| GET /varieties/ | ✅ | ✅ | ✅ |
+| POST /varieties/ | ❌ | ❌ | ✅ |
+| PUT /varieties/{id} | ❌ | ❌ | ✅ |
+| GET /varieties/{id}/stats | ❌ | ❌ | ✅ |
+| DELETE /varieties/{id} | ❌ | ❌ | ✅ |
+| GET /documents/collections | ✅ | ✅ | ✅ |
 | GET /documents/ | ✅ | ✅ | ✅ |
 | GET /documents/{id}/file | ✅ | ✅ | ✅ |
 | POST /documents/upload | ❌ | ❌ | ✅ |
 | DELETE /documents/{id} | ❌ | ❌ | ✅ |
 | POST /plans/ | ❌ | ✅ | ✅ |
 | GET /plans/ | ❌ | ✅ | ✅ |
+| PATCH /plans/{id} | ❌ | ✅ | ✅ |
 | PATCH /plans/.../toggle | ❌ | ✅ | ✅ |
+| POST /plans/{id}/clone | ❌ | ✅ | ✅ |
 | DELETE /plans/{id} | ❌ | ✅ | ✅ |
 | GET /prompts/ | ✅ | ✅ | ✅ |
 | POST /prompts/ | ❌ | ❌ | ✅ |
 | POST /prompts/generate | ❌ | ❌ | ✅ |
 | DELETE /prompts/{id} | ❌ | ❌ | ✅ |
 | GET /admin/faq | ❌ | ❌ | ✅ |
+| GET /admin/gaps | ❌ | ❌ | ✅ |
+| GET /admin/users | ❌ | ❌ | ✅ |
+| PUT /admin/users/{id}/role | ❌ | ❌ | ✅ |
 
 user ธรรมดา register แล้วได้ role = "user" อัตโนมัติ
 การเปลี่ยน role เป็น admin ต้องแก้ตรง DB โดยตรง (ไม่มี endpoint)

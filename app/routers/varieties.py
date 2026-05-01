@@ -23,10 +23,9 @@ class RiceVarietyCreate(BaseModel):
     tillering_day: int
     panicle_initiation_day: int
     heading_day: int
-    fert1_rate: float
-    fert2_rate: float
-    fert1_formula: str
-    fert2_formula: str
+    fert1_rate: float | None = None
+    fert2_rate: float | None = None
+    fert2_formula: str | None = None
     description: str | None = None
     reference_url: str | None = None
     fert1_note: str | None = None
@@ -45,7 +44,6 @@ class RiceVarietyUpdate(BaseModel):
     heading_day: int | None = None
     fert1_rate: float | None = None
     fert2_rate: float | None = None
-    fert1_formula: str | None = None
     fert2_formula: str | None = None
     fert1_note: str | None = None
     fert2_note: str | None = None
@@ -66,7 +64,6 @@ class RiceVarietyResponse(BaseModel):
     heading_day: int | None
     fert1_rate: float | None
     fert2_rate: float | None
-    fert1_formula: str | None
     fert2_formula: str | None
     fert1_note: str | None
     fert2_note: str | None
@@ -88,7 +85,6 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         heading_day=int(v.heading_day) if v.heading_day is not None else None,
         fert1_rate=float(v.fert1_rate) if v.fert1_rate is not None else None,
         fert2_rate=float(v.fert2_rate) if v.fert2_rate is not None else None,
-        fert1_formula=str(v.fert1_formula) if v.fert1_formula else None,
         fert2_formula=str(v.fert2_formula) if v.fert2_formula else None,
         fert1_note=str(v.fert1_note) if v.fert1_note else None,
         fert2_note=str(v.fert2_note) if v.fert2_note else None,
@@ -113,6 +109,19 @@ def _validate_growth_stages(
         )
 
 
+def _validate_fertilizer(
+    fert1_rate: float | None,
+    fert2_rate: float | None,
+    fert2_formula: str | None,
+) -> None:
+    if fert1_rate is None or fert1_rate < 0:
+        raise HTTPException(status_code=400, detail="กรุณากรอกอัตราปุ๋ยช่วงแตกกอให้ถูกต้อง")
+    if fert2_rate is None or fert2_rate < 0:
+        raise HTTPException(status_code=400, detail="กรุณากรอกอัตราปุ๋ยช่วงกำเนิดช่อดอกให้ถูกต้อง")
+    if not fert2_formula or not fert2_formula.strip():
+        raise HTTPException(status_code=400, detail="กรุณากรอกสูตรปุ๋ยช่วงกำเนิดช่อดอก")
+
+
 @router.get("/", response_model=list[RiceVarietyResponse])
 def list_varieties(db: Session = Depends(get_db)):
     return [_to_response(v) for v in db.query(RiceVariety).filter(RiceVariety.is_active == True).all()]
@@ -130,6 +139,7 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         body.panicle_initiation_day,
         body.heading_day,
     )
+    _validate_fertilizer(body.fert1_rate, body.fert2_rate, body.fert2_formula)
 
     variety = RiceVariety(
         name=body.name,
@@ -144,8 +154,8 @@ def create_variety(body: RiceVarietyCreate, db: Session = Depends(get_db), _=Dep
         heading_day=body.heading_day,
         fert1_rate=body.fert1_rate,
         fert2_rate=body.fert2_rate,
-        fert1_formula=body.fert1_formula,
-        fert2_formula=body.fert2_formula,
+        fert1_formula="",
+        fert2_formula=body.fert2_formula.strip(),
         fert1_note=body.fert1_note,
         fert2_note=body.fert2_note,
     )
@@ -178,6 +188,16 @@ def update_variety(variety_id: str, body: RiceVarietyUpdate, db: Session = Depen
         int(panicle_initiation_day) if panicle_initiation_day is not None else None,
         int(heading_day) if heading_day is not None else None,
     )
+    fert1_rate = updates.get("fert1_rate", variety.fert1_rate)
+    fert2_rate = updates.get("fert2_rate", variety.fert2_rate)
+    fert2_formula = updates.get("fert2_formula", variety.fert2_formula)
+    _validate_fertilizer(
+        float(fert1_rate) if fert1_rate is not None else None,
+        float(fert2_rate) if fert2_rate is not None else None,
+        str(fert2_formula) if fert2_formula is not None else None,
+    )
+    if "fert2_formula" in updates and isinstance(updates["fert2_formula"], str):
+        updates["fert2_formula"] = updates["fert2_formula"].strip()
 
     for field, val in updates.items():
         setattr(variety, field, val)

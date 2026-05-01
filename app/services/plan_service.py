@@ -194,8 +194,8 @@ def _build_tasks(
             "จัดการน้ำหลังปลูก",
             "รักษาระดับน้ำ 3-5 ซม. เพื่อควบคุมวัชพืชและช่วยให้ข้าวตั้งตัว ห้ามปล่อยแปลงแห้งใน 2 สัปดาห์แรกหลังปลูก",
         ),
-        (fert1_day, "ระยะแตกกอ", "ใส่ปุ๋ยครั้งที่ 1", fert1_desc),
-        (fert2_day, "ระยะกำเนิดช่อดอก", "ใส่ปุ๋ยครั้งที่ 2", fert2_desc),
+        (fert1_day, "ระยะแตกกอ", "ใส่ปุ๋ยช่วงแตกกอ", fert1_desc),
+        (fert2_day, "ระยะกำเนิดช่อดอก", "ใส่ปุ๋ยช่วงกำเนิดช่อดอก", fert2_desc),
         (
             heading_day,
             "ระยะตั้งท้องและออกรวง",
@@ -233,8 +233,10 @@ def calculate_resources(
     fert1_rate: float,
     fert2_rate: float,
     fert1_formula: str = "",
+    fert2_formula: str = "",
 ) -> dict:
     resolved_f1 = fert1_formula or SOIL_FERT1_FORMULA.get(soil_type, "16-20-0")
+    resolved_f2 = fert2_formula or "46-0-0"
     multiplier = SOIL_FERT_MULTIPLIER.get(soil_type, 1.0)
 
     if planting_method == "broadcast":
@@ -252,7 +254,7 @@ def calculate_resources(
         "fertilizer1_kg": round(fert1_rate * multiplier * area_rai, 1),
         "fertilizer1_formula": resolved_f1,
         "fertilizer2_kg": round(fert2_rate * multiplier * area_rai, 1),
-        "fertilizer2_formula": "46-0-0",
+        "fertilizer2_formula": resolved_f2,
         "seedling_trays": trays,
     }
 
@@ -350,6 +352,7 @@ class PlanService:
             fert1_rate,
             fert2_rate,
             fert1_formula,
+            fert2_formula,
         )
         return tasks, resources, actual_planting_date
 
