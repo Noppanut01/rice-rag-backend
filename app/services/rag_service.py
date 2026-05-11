@@ -49,6 +49,31 @@ def _normalize_prompt_suggestions(items: list[dict]) -> list[dict]:
     return suggestions
 
 
+def _extract_token_usage(raw) -> tuple[int, int]:
+    usage = getattr(raw, "usage_metadata", None) or {}
+    response_metadata = getattr(raw, "response_metadata", {}) or {}
+    response_usage = response_metadata.get("usage_metadata", {}) or {}
+    token_usage = response_metadata.get("token_usage", {}) or {}
+
+    input_tokens = (
+        usage.get("input_tokens")
+        or response_usage.get("input_tokens")
+        or response_usage.get("prompt_token_count")
+        or token_usage.get("input_tokens")
+        or token_usage.get("prompt_tokens")
+        or 0
+    )
+    output_tokens = (
+        usage.get("output_tokens")
+        or response_usage.get("output_tokens")
+        or response_usage.get("candidates_token_count")
+        or token_usage.get("output_tokens")
+        or token_usage.get("completion_tokens")
+        or 0
+    )
+    return int(input_tokens or 0), int(output_tokens or 0)
+
+
 class RAGService:
     def __init__(self):
         self.embeddings = GoogleGenerativeAIEmbeddings(
@@ -215,11 +240,7 @@ class RAGService:
         raw = (prompt | self.llm).invoke(
             {"context": context, "question": question, "history_text": history_text}
         )
-        usage = (
-            raw.response_metadata.get("usage_metadata", {})
-            if hasattr(raw, "response_metadata")
-            else {}
-        )
+        input_tokens, output_tokens = _extract_token_usage(raw)
         answer = _STRIP_ASTERISKS.sub(
             "", str(raw.content) if hasattr(raw, "content") else raw
         ).strip()
@@ -233,8 +254,8 @@ class RAGService:
             "chunk_size": settings.CHUNK_SIZE,
             "retrieval_k": settings.RETRIEVAL_K,
             "chunks_retrieved": len(docs),
-            "input_tokens": usage.get("prompt_token_count", 0),
-            "output_tokens": usage.get("candidates_token_count", 0),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "response_time_ms": round((time.time() - start) * 1000),
         }
 
@@ -325,11 +346,7 @@ class RAGService:
         raw = (prompt | self.llm).invoke(
             {"context": context, "question": question, "history_text": history_text}
         )
-        usage = (
-            raw.response_metadata.get("usage_metadata", {})
-            if hasattr(raw, "response_metadata")
-            else {}
-        )
+        input_tokens, output_tokens = _extract_token_usage(raw)
         answer = _STRIP_ASTERISKS.sub(
             "", str(raw.content) if hasattr(raw, "content") else raw
         ).strip()
@@ -343,8 +360,8 @@ class RAGService:
             "chunk_size": 0,
             "retrieval_k": 0,
             "chunks_retrieved": 0,
-            "input_tokens": usage.get("prompt_token_count", 0),
-            "output_tokens": usage.get("candidates_token_count", 0),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "response_time_ms": round((time.time() - start) * 1000),
         }
 

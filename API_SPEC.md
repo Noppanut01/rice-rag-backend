@@ -161,7 +161,7 @@ Backend generate tasks/resources จากพันธุ์ข้าว วิ�
     "fertilizer1_kg": 0.0,
     "fertilizer1_formula": "16-20-0",
     "fertilizer2_kg": 0.0,
-    "fertilizer2_formula": "46-0-0",
+    "fertilizer2_formula": "string",
     "seedling_trays": null
   },
   "tasks": [
@@ -181,7 +181,7 @@ Backend generate tasks/resources จากพันธุ์ข้าว วิ�
 
 หมายเหตุ:
 - `fertilizer1_formula` เลือกจาก `soil_type`: `clay` = `16-20-0`, `loam`/`sandy` = `16-16-8`
-- `fertilizer2_formula` มาจากข้อมูลพันธุ์ข้าว
+- `fertilizer2_formula` มาจากข้อมูลพันธุ์ข้าว (`rice_varieties.fert2_formula`) ไม่ใช่ค่า fixed ของระบบ
 
 **Error**
 - `401` — ไม่ได้ login

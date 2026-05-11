@@ -1,21 +1,21 @@
 # Rice Farming RAG Backend
 
-Backend สำหรับระบบผู้เชี่ยวชาญการปลูกข้าว — ใช้ RAG (Retrieval-Augmented Generation) ด้วย local LLM ผ่าน Ollama
+Backend สำหรับระบบผู้เชี่ยวชาญการปลูกข้าว — ใช้ RAG (Retrieval-Augmented Generation) ผ่าน Google Gemini API
 
-**Thesis contribution**: เปรียบเทียบ local LLM บน RAG pipeline ว่า optimize แล้วต่างจากไม่ optimize แค่ไหน (เวลา, RAM, คุณภาพคำตอบ)
+**Thesis contribution**: เปรียบเทียบคำตอบของระบบ RAG กับ No-RAG ว่าแตกต่างกันแค่ไหนในด้านคุณภาพคำตอบ การลด hallucination และเวลาตอบสนอง
 
 ---
 
 ## Tech Stack
 
 - **FastAPI** — REST API
-- **PostgreSQL** — เก็บ users, chat history, plans, documents
+- **PostgreSQL** — เก็บ users, chat history, plans, documents, rice varieties
 - **SQLAlchemy** — ORM (ใช้ `create_all` ไม่ใช้ Alembic)
-- **ChromaDB** — Vector store สำหรับ embeddings (single collection `rice_knowledge`)
+- **ChromaDB** — Vector store สำหรับ embeddings แยก collection ตามพันธุ์ข้าวและ `general`
 - **LangChain** — RAG pipeline
-- **Ollama** — รัน local LLM
-  - LLM: `gemma3:4b` (prod) / `llama3.2:3b` (dev)
-  - Embedding: `bge-m3` (prod) / `mxbai-embed-large` (dev)
+- **Google Gemini API** — LLM และ embedding
+  - LLM: `gemini-2.5-flash`
+  - Embedding: `gemini-embedding-001`
 - **JWT** — Authentication (python-jose + passlib)
 
 ---
@@ -24,12 +24,7 @@ Backend สำหรับระบบผู้เชี่ยวชาญกา
 
 - Python 3.12+
 - PostgreSQL (Postgres.app หรือ Docker)
-- [Ollama](https://ollama.com) พร้อม model ที่ต้องการ
-
-```bash
-ollama pull llama3.2:3b
-ollama pull mxbai-embed-large
-```
+- Google AI Studio API key สำหรับ Gemini
 
 ---
 
@@ -49,7 +44,7 @@ pip install -r requirements.txt
 
 # 4. สร้าง .env จาก template
 cp .env.example .env
-# แก้ DATABASE_URL และ SECRET_KEY
+# แก้ DATABASE_URL, GEMINI_API_KEY และ SECRET_KEY
 
 # 5. สร้าง database (รัน PostgreSQL ก่อน)
 createdb ricerag
@@ -67,14 +62,14 @@ Swagger docs: http://localhost:8000/docs
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/ricerag
 
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_LLM_MODEL=llama3.2:3b
-OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+GEMINI_API_KEY=your-google-ai-studio-api-key
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 
 CHUNK_SIZE=500
 CHUNK_OVERLAP=50
 RETRIEVAL_STRATEGY=mmr
-RETRIEVAL_K=3
+RETRIEVAL_K=5
 LLM_TEMPERATURE=0.3
 
 CHROMA_PERSIST_DIRECTORY=./chroma_db
@@ -145,8 +140,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ทุก request บันทึก metrics ลง `chat_history` สำหรับเปรียบเทียบ:
 
 - `response_time_ms` — เวลาตั้งแต่รับ query จนได้คำตอบ
-- `ram_used_mb` — RAM ที่ใช้ระหว่าง generate
-- `model_used`, `embedding_model`, `retrieval_strategy`, `chunk_size`, `chunks_retrieved`
+- `model_used`, `embedding_model`, `retrieval_strategy`, `chunk_size`, `retrieval_k`, `chunks_retrieved`
+- `input_tokens`, `output_tokens` — token usage จาก Gemini response metadata เมื่อมีข้อมูล
 
 ปรับ config ผ่าน `.env` เพื่อทำ experiment โดยไม่ต้องแก้ code
 

@@ -61,6 +61,9 @@ def create_plan(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if body.area_rai <= 0:
+        raise HTTPException(status_code=400, detail="พื้นที่ต้องมากกว่า 0")
+
     variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id, RiceVariety.is_active == True).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
@@ -133,22 +136,25 @@ def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_us
         tasks = db.query(PlanTask).filter(PlanTask.plan_id == p.id).order_by(PlanTask.day).all()
         variety = db.query(RiceVariety).filter(RiceVariety.id == p.variety_id).first()
         resources = p.resources_snapshot
-        if not resources:
-            if variety:
-                fert1_rate, fert2_rate, fert2_formula, _f1n, _f2n = _resolve_fert(variety)
-                resources = calculate_resources(
-                    planting_method=str(p.planting_method),
-                    area_rai=float(p.area_rai),
-                    soil_type=str(p.soil_type) if p.soil_type else "clay",
-                    fert1_rate=fert1_rate,
-                    fert2_rate=fert2_rate,
-                    fert1_formula=FERT1_FORMULA_FROM_SOIL,
-                    fert2_formula=fert2_formula,
-                )
+        if variety:
+            fert1_rate, fert2_rate, fert2_formula, _f1n, _f2n = _resolve_fert(variety)
+            current_resources = calculate_resources(
+                planting_method=str(p.planting_method),
+                area_rai=float(p.area_rai),
+                soil_type=str(p.soil_type) if p.soil_type else "clay",
+                fert1_rate=fert1_rate,
+                fert2_rate=fert2_rate,
+                fert1_formula=FERT1_FORMULA_FROM_SOIL,
+                fert2_formula=fert2_formula,
+            )
+            # Older snapshots may contain stale fertilizer formulas. Keep tasks
+            # and completion progress, but make resource output match current rules.
+            if resources != current_resources:
+                resources = current_resources
                 p.resources_snapshot = resources
                 db.commit()
-            else:
-                resources = {"seed_kg": 0.0, "fertilizer1_kg": 0.0, "fertilizer1_formula": "", "fertilizer2_kg": 0.0, "fertilizer2_formula": ""}
+        elif not resources:
+            resources = {"seed_kg": 0.0, "fertilizer1_kg": 0.0, "fertilizer1_formula": "", "fertilizer2_kg": 0.0, "fertilizer2_formula": ""}
         p_offset = PLANTING_DAY.get(str(p.planting_method), 0)
         actual_planting_date = p.start_date + timedelta(days=p_offset)
         result.append(_plan_to_response(p, tasks, resources, actual_planting_date, bool(variety.is_photoperiod_sensitive) if variety else False))
