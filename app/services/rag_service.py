@@ -1,8 +1,6 @@
 import json
 import os
 import re
-import shutil
-import subprocess
 import time
 
 _STRIP_ASTERISKS = re.compile(r"\*+")
@@ -10,7 +8,7 @@ _STRIP_ASTERISKS = re.compile(r"\*+")
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
+from langchain_community.document_loaders import Docx2txtLoader, PyMuPDFLoader, TextLoader
 from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
@@ -141,32 +139,10 @@ class RAGService:
         return unique[: settings.RETRIEVAL_K * 2]
 
     def _load_pdf_documents(self, file_path: str) -> list[Document]:
-        pdftotext = shutil.which("pdftotext")
-        if pdftotext:
-            try:
-                result = subprocess.run(
-                    [pdftotext, file_path, "-"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                text = result.stdout.strip()
-                if len(re.sub(r"\s+", "", text)) >= 50:
-                    return [
-                        Document(
-                            page_content=text,
-                            metadata={
-                                "source": os.path.abspath(file_path),
-                                "title": os.path.basename(file_path),
-                                "extraction_method": "pdftotext",
-                            },
-                        )
-                    ]
-            except Exception:
-                pass
-
-        return PyPDFLoader(file_path).load()
+        docs = PyMuPDFLoader(file_path).load()
+        for doc in docs:
+            doc.metadata["extraction_method"] = "pymupdf"
+        return docs
 
     def ingest_document(self, file_path: str, collection_name: str) -> str:
         file_path = os.path.abspath(file_path)

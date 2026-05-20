@@ -55,7 +55,6 @@ class RiceVarietyResponse(BaseModel):
     collection_name: str
     harvest_age_days: int
     is_photoperiod_sensitive: bool
-    is_active: bool
     supported_methods: list[str]
     description: str | None
     reference_url: str | None
@@ -76,7 +75,6 @@ def _to_response(v: RiceVariety) -> RiceVarietyResponse:
         collection_name=str(v.collection_name),
         harvest_age_days=int(v.harvest_age_days),
         is_photoperiod_sensitive=bool(v.is_photoperiod_sensitive),
-        is_active=bool(v.is_active),
         supported_methods=list(v.supported_methods),
         description=str(v.description) if v.description else None,
         reference_url=str(v.reference_url) if v.reference_url else None,
@@ -124,7 +122,7 @@ def _validate_fertilizer(
 
 @router.get("/", response_model=list[RiceVarietyResponse])
 def list_varieties(db: Session = Depends(get_db)):
-    return [_to_response(v) for v in db.query(RiceVariety).filter(RiceVariety.is_active == True).all()]
+    return [_to_response(v) for v in db.query(RiceVariety).all()]
 
 
 @router.post("/", response_model=RiceVarietyResponse)

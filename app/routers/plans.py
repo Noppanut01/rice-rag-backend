@@ -64,7 +64,7 @@ def create_plan(
     if body.area_rai <= 0:
         raise HTTPException(status_code=400, detail="พื้นที่ต้องมากกว่า 0")
 
-    variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id, RiceVariety.is_active == True).first()
+    variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id).first()
     if not variety:
         raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
 
@@ -254,7 +254,7 @@ def clone_plan(
     if not src:
         raise HTTPException(status_code=404, detail="ไม่พบแผนต้นฉบับ")
 
-    variety = db.query(RiceVariety).filter(RiceVariety.id == src.variety_id, RiceVariety.is_active == True).first()
+    variety = db.query(RiceVariety).filter(RiceVariety.id == src.variety_id).first()
     if not variety:
         raise HTTPException(status_code=404, detail="พันธุ์ข้าวของแผนต้นฉบับไม่พร้อมใช้งาน")
 

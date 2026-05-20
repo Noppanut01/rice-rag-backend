@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm.session import Session
@@ -9,6 +11,17 @@ from app.schemas.auth import UserResponse, UserRoleUpdateRequest
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+_QUESTION_SUFFIX_RE = re.compile(r"\s*(นะครับ|นะคะ|ครับ|ค่ะ|คะ)\s*$")
+_TRAILING_PUNCT_RE = re.compile(r"[\s?？!！.。…]+$")
+
+
+def _normalize_question(question: str) -> str:
+    normalized = question.strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = _TRAILING_PUNCT_RE.sub("", normalized)
+    normalized = _QUESTION_SUFFIX_RE.sub("", normalized).strip()
+    return normalized or question.strip()
+
 
 @router.get("/faq")
 def get_faq(db: Session = Depends(get_db), _=Depends(require_admin)):
@@ -16,10 +29,27 @@ def get_faq(db: Session = Depends(get_db), _=Depends(require_admin)):
         db.query(ChatHistory.question, func.count(ChatHistory.question).label("count"))
         .group_by(ChatHistory.question)
         .order_by(func.count(ChatHistory.question).desc())
-        .limit(10)
         .all()
     )
-    return [{"question": row.question, "count": row.count} for row in results]
+
+    grouped: dict[str, dict] = {}
+    for row in results:
+        key = _normalize_question(row.question)
+        item = grouped.setdefault(
+            key,
+            {"question": row.question, "count": 0},
+        )
+        item["count"] += row.count
+
+    normalized_results = sorted(
+        grouped.values(),
+        key=lambda item: item["count"],
+        reverse=True,
+    )
+    return [
+        {"question": row["question"], "count": row["count"]}
+        for row in normalized_results[:10]
+    ]
 
 
 @router.get("/gaps")
@@ -40,16 +70,34 @@ def get_knowledge_gaps(db: Session = Depends(get_db), _=Depends(require_admin)):
         )
         .group_by(ChatHistory.question)
         .order_by(func.count(ChatHistory.id).desc())
-        .limit(20)
         .all()
+    )
+
+    grouped: dict[str, dict] = {}
+    for row in results:
+        key = _normalize_question(row.question)
+        item = grouped.setdefault(
+            key,
+            {"question": row.question, "count": 0, "last_asked_at": row.last_asked_at},
+        )
+        item["count"] += row.count
+        if row.last_asked_at and (
+            item["last_asked_at"] is None or row.last_asked_at > item["last_asked_at"]
+        ):
+            item["last_asked_at"] = row.last_asked_at
+
+    normalized_results = sorted(
+        grouped.values(),
+        key=lambda item: item["count"],
+        reverse=True,
     )
     return [
         {
-            "question": row.question,
-            "count": row.count,
-            "last_asked_at": row.last_asked_at.isoformat() if row.last_asked_at else None,
+            "question": row["question"],
+            "count": row["count"],
+            "last_asked_at": row["last_asked_at"].isoformat() if row["last_asked_at"] else None,
         }
-        for row in results
+        for row in normalized_results[:20]
     ]
 
 
