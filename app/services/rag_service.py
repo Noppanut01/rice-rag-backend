@@ -8,11 +8,16 @@ _STRIP_ASTERISKS = re.compile(r"\*+")
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import Docx2txtLoader, PyMuPDFLoader, TextLoader
-from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.core.config import settings
+from app.services.document_loaders import load_documents
+from app.services.rag_prompts import (
+    DEFAULT_PROMPT_SUGGESTIONS,
+    NO_RAG_TEMPLATE,
+    PROMPT_SUGGESTIONS_TEMPLATE,
+    RAG_QA_TEMPLATE,
+)
 
 
 def _normalize_prompt_suggestions(items: list[dict]) -> list[dict]:
@@ -138,22 +143,9 @@ class RAGService:
                 unique.append(doc)
         return unique[: settings.RETRIEVAL_K * 2]
 
-    def _load_pdf_documents(self, file_path: str) -> list[Document]:
-        docs = PyMuPDFLoader(file_path).load()
-        for doc in docs:
-            doc.metadata["extraction_method"] = "pymupdf"
-        return docs
-
     def ingest_document(self, file_path: str, collection_name: str) -> str:
         file_path = os.path.abspath(file_path)
-        if file_path.endswith(".pdf"):
-            docs = self._load_pdf_documents(file_path)
-        elif file_path.endswith(".docx"):
-            loader = Docx2txtLoader(file_path)
-            docs = loader.load()
-        else:
-            loader = TextLoader(file_path, encoding="utf-8")
-            docs = loader.load()
+        docs = load_documents(file_path)
 
         chunks = self.splitter.split_documents(docs)
         if collection_name not in self.vectorstores:
@@ -196,21 +188,7 @@ class RAGService:
         history_text = self._build_history_text(history)
 
         prompt = PromptTemplate(
-            template=(
-                "คุณคือ AI ผู้ช่วยด้านการปลูกข้าว\n"
-                "กฎในการตอบคำถาม:\n"
-                "1. ให้ตอบโดยอ้างอิงจากข้อมูลสนับสนุน (Context) เป็นหลัก\n"
-                "2. ถ้า Context มีข้อมูลที่เกี่ยวข้อง ให้ใช้ข้อมูลนั้นก่อน และห้ามตอบขัดแย้งกับ Context\n"
-                "3. ต้องตอบให้ตรงเงื่อนไขสำคัญในคำถาม เช่น พันธุ์ สถานที่ วิธีปลูก โรค สารเคมี อัตรา หรือช่วงเวลา\n"
-                "4. ถ้า Context ไม่มีคำตอบตรงเงื่อนไขสำคัญ หรือมีเพียงข้อมูลใกล้เคียง ให้บอกส่วนที่พบจาก Context และตอบคำแนะนำทั่วไปได้เฉพาะเบื้องต้น\n"
-                "5. หากตอบจากความรู้ทั่วไป ต้องต่อท้ายคำตอบด้วยข้อความนี้เสมอ: [หมายเหตุ: คำตอบนี้ใช้ความรู้ทั่วไป เนื่องจากไม่พบในเอกสารอ้างอิง]\n"
-                "6. ห้ามแต่งตัวเลขเฉพาะ เช่น อายุเก็บเกี่ยว อัตราปุ๋ย ปริมาณสารเคมี หรือช่วงวันที่ หากไม่มีใน Context\n"
-                "7. ตอบเป็นภาษาไทย กระชับ เข้าใจง่าย ไม่เกิน 5 ประโยค\n\n"
-                "{history_text}"
-                "ข้อมูลสนับสนุน (Context):\n{context}\n\n"
-                "คำถามปัจจุบัน: {question}\n"
-                "คำตอบ:"
-            ),
+            template=RAG_QA_TEMPLATE,
             input_variables=["context", "question", "history_text"],
         )
         raw = (prompt | self.llm).invoke(
@@ -241,24 +219,7 @@ class RAGService:
         context = "\n\n".join([doc.page_content for doc in docs])[:12000]
 
         prompt = PromptTemplate(
-            template=(
-                "คุณคือผู้ช่วยออกแบบ prompt template สำหรับแชตบอทผู้เชี่ยวชาญเรื่องข้าว\n"
-                "Prompt template ในระบบนี้คือคำถามตัวอย่างที่ผู้ใช้กดแล้วจะถูกใส่ในช่องแชต "
-                "ไม่ใช่ system prompt และไม่ใช่คำตอบ\n\n"
-                "ให้สร้างคำถามแนะนำ 5 รายการสำหรับเกษตรกรผู้ปลูกข้าว โดยอิงจากเนื้อหาที่ให้มา "
-                "ถ้าเนื้อหามีน้อย ให้ใช้หัวข้อความรู้พื้นฐานด้านการปลูกข้าว\n\n"
-                "กฎการสร้าง:\n"
-                "- ใช้ภาษาไทยเท่านั้น\n"
-                "- title ต้องเป็นชื่อสั้น 2-5 คำ เช่น การใส่ปุ๋ย, โรคข้าว, จัดการน้ำ\n"
-                "- content ต้องเป็นคำถามเดียวที่เกษตรกรจะถามจริง ความยาวไม่เกิน 120 ตัวอักษร และลงท้ายด้วยเครื่องหมาย ?\n"
-                "- ห้ามเขียนคำตอบ ห้ามอธิบาย ห้ามใส่ markdown ห้ามใส่ placeholder\n"
-                "- แต่ละรายการต้องถามคนละประเด็น เช่น พันธุ์ข้าว วันที่ปลูก วิธีปลูก ปุ๋ย น้ำ โรคแมลง หรือเก็บเกี่ยว\n"
-                '- ห้ามสร้างคำถามซ้ำหรือกว้างเกินไป เช่น "ปลูกข้าวอย่างไร?"\n\n'
-                "ตอบเป็น JSON array เท่านั้น โดยใช้ schema นี้เท่านั้น:\n"
-                '[{{"title":"ชื่อสั้น","content":"คำถามเต็ม?"}}]\n\n'
-                "เนื้อหา:\n{context}\n\n"
-                "JSON:"
-            ),
+            template=PROMPT_SUGGESTIONS_TEMPLATE,
             input_variables=["context"],
         )
         llm_creative = ChatGoogleGenerativeAI(
@@ -277,25 +238,7 @@ class RAGService:
                 return _normalize_prompt_suggestions(result)
         except Exception:
             pass
-        return [
-            {
-                "title": "เลือกพันธุ์ข้าว",
-                "content": "ควรเลือกพันธุ์ข้าวแบบใดให้เหมาะกับพื้นที่และฤดูกาลปลูก?",
-            },
-            {
-                "title": "วันที่ปลูก",
-                "content": "ควรเริ่มปลูกข้าวช่วงเดือนไหนจึงเหมาะกับพันธุ์ที่ไวต่อช่วงแสง?",
-            },
-            {"title": "การใส่ปุ๋ย", "content": "ควรใส่ปุ๋ยข้าวช่วงใดและใช้สูตรปุ๋ยอะไรจึงเหมาะสม?"},
-            {
-                "title": "จัดการน้ำ",
-                "content": "ควรจัดการระดับน้ำในนาอย่างไรในแต่ละช่วงการเจริญเติบโตของข้าว?",
-            },
-            {
-                "title": "โรคและแมลง",
-                "content": "ถ้าข้าวมีอาการผิดปกติควรตรวจโรคหรือแมลงศัตรูข้าวอย่างไร?",
-            },
-        ]
+        return DEFAULT_PROMPT_SUGGESTIONS
 
     def ask_question_no_rag(
         self,
@@ -310,13 +253,7 @@ class RAGService:
         history_text = self._build_history_text(history)
 
         prompt = PromptTemplate(
-            template=(
-                "ตอบคำถามเป็นภาษาไทย ไม่เกิน 5 ประโยค\n\n"
-                "{history_text}"
-                "{context}"
-                "คำถามปัจจุบัน: {question}\n"
-                "คำตอบ:"
-            ),
+            template=NO_RAG_TEMPLATE,
             input_variables=["context", "question", "history_text"],
         )
         raw = (prompt | self.llm).invoke(

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm.session import Session
 
 from app.dependencies import get_db, require_admin
 from app.models.prompt import PromptTemplate
 from app.schemas.prompt import PromptTemplateRequest, PromptTemplateResponse
 from app.services.rag_service import rag_service
+from app.utils.http_errors import not_found
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
@@ -53,6 +54,6 @@ def delete_template(
 ):
     template = db.query(PromptTemplate).filter(PromptTemplate.id == template_id).first()
     if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ไม่พบ template")
+        raise not_found("ไม่พบ template")
     db.delete(template)
     db.commit()

@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.models.document import Document
 from app.models.variety import RiceVariety
 from app.schemas.document import DocumentResponse
 from app.services.rag_service import rag_service
+from app.utils.http_errors import bad_request, not_found
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -48,12 +49,12 @@ def upload(
 ):
     valid_collections = {v.collection_name for v in db.query(RiceVariety).all()} | {"general"}
     if collection not in valid_collections:
-        raise HTTPException(status_code=400, detail=f"ไม่พบ collection '{collection}'")
+        raise bad_request(f"ไม่พบ collection '{collection}'")
 
     results = []
     for file in files:
         if not file.filename or not file.filename.endswith((".pdf", ".txt", ".docx")):
-            raise HTTPException(status_code=400, detail="รองรับแค่ .pdf .txt .docx")
+            raise bad_request("รองรับแค่ .pdf .txt .docx")
 
         collection_dir = Path(settings.UPLOAD_DIR) / collection
         collection_dir.mkdir(parents=True, exist_ok=True)
@@ -82,10 +83,10 @@ def upload(
 def get_file(id: str, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="ไม่พบเอกสาร")
+        raise not_found("ไม่พบเอกสาร")
     file_path = Path(str(document.file_path))
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="ไม่พบไฟล์ในระบบ")
+        raise not_found("ไม่พบไฟล์ในระบบ")
     suffix = file_path.suffix.lower()
     media_types = {
         ".pdf": "application/pdf",
@@ -109,7 +110,7 @@ def get_file(id: str, db: Session = Depends(get_db)):
 def delete(id: str, db: Session = Depends(get_db), _=Depends(require_admin)):
     document = db.query(Document).filter(Document.id == id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="ไม่พบเอกสาร")
+        raise not_found("ไม่พบเอกสาร")
     rag_service.delete_document(str(document.file_path), str(document.chroma_collection))
     db.delete(document)
     db.commit()

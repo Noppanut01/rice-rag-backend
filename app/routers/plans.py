@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm.session import Session
 
 from app.dependencies import get_current_user, get_db
@@ -7,6 +7,12 @@ from app.models.plan import PlanTask, PlantingPlan
 from app.models.variety import RiceVariety
 from app.schemas.plan import PlanCloneRequest, PlanRequest, PlanResources, PlanResponse, PlanTaskResponse, PlanUpdateRequest
 from app.services.plan_service import PLANTING_DAY, calculate_resources, plan_service
+from app.services.plan_validation import (
+    get_variety_or_404,
+    validate_create_plan,
+    validate_update_plan,
+)
+from app.utils.http_errors import bad_request, not_found
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -61,18 +67,7 @@ def create_plan(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if body.area_rai <= 0:
-        raise HTTPException(status_code=400, detail="พื้นที่ต้องมากกว่า 0")
-
-    variety = db.query(RiceVariety).filter(RiceVariety.id == body.variety_id).first()
-    if not variety:
-        raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าว")
-
-    if body.planting_method not in variety.supported_methods:
-        raise HTTPException(
-            status_code=400,
-            detail=f"พันธุ์ {variety.name} ไม่รองรับวิธีปลูก '{body.planting_method}'"
-        )
+    variety = validate_create_plan(body, db)
 
     fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
@@ -95,7 +90,7 @@ def create_plan(
             is_photoperiod_sensitive=bool(variety.is_photoperiod_sensitive),
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
     plan = PlantingPlan(
         user_id=current_user.id,
@@ -173,11 +168,11 @@ def toggle_task(
         PlantingPlan.user_id == current_user.id,
     ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="ไม่พบแผน")
+        raise not_found("ไม่พบแผน")
 
     task = db.query(PlanTask).filter(PlanTask.id == task_id, PlanTask.plan_id == plan_id).first()
     if not task:
-        raise HTTPException(status_code=404, detail="ไม่พบงาน")
+        raise not_found("ไม่พบงาน")
 
     task.is_completed = not task.is_completed
     db.commit()
@@ -197,25 +192,21 @@ def update_plan(
         PlantingPlan.user_id == current_user.id,
     ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="ไม่พบแผน")
+        raise not_found("ไม่พบแผน")
+
+    validate_update_plan(body)
 
     if body.plot_name is not None:
         plan.plot_name = body.plot_name
     if body.area_rai is not None:
-        if body.area_rai <= 0:
-            raise HTTPException(status_code=400, detail="พื้นที่ต้องมากกว่า 0")
         plan.area_rai = body.area_rai
     if body.soil_type is not None:
-        if body.soil_type not in ["clay", "loam", "sandy"]:
-            raise HTTPException(status_code=400, detail="ประเภทดินไม่ถูกต้อง")
         plan.soil_type = body.soil_type
 
     # Recalc resources snapshot (ไม่แตะ tasks เพื่อเก็บ progress เดิม)
     # สูตรปุ๋ยช่วงแตกกอยึดตาม soil_type ของแผนเสมอ (soil wins)
     if body.area_rai is not None or body.soil_type is not None:
-        variety = db.query(RiceVariety).filter(RiceVariety.id == plan.variety_id).first()
-        if not variety:
-            raise HTTPException(status_code=404, detail="ไม่พบพันธุ์ข้าวของแผนนี้")
+        variety = get_variety_or_404(db, str(plan.variety_id))
         fert1_rate, fert2_rate, fert2_formula, _f1n, _f2n = _resolve_fert(variety)
         plan.resources_snapshot = calculate_resources(
             planting_method=str(plan.planting_method),
@@ -252,11 +243,9 @@ def clone_plan(
         PlantingPlan.user_id == current_user.id,
     ).first()
     if not src:
-        raise HTTPException(status_code=404, detail="ไม่พบแผนต้นฉบับ")
+        raise not_found("ไม่พบแผนต้นฉบับ")
 
-    variety = db.query(RiceVariety).filter(RiceVariety.id == src.variety_id).first()
-    if not variety:
-        raise HTTPException(status_code=404, detail="พันธุ์ข้าวของแผนต้นฉบับไม่พร้อมใช้งาน")
+    variety = get_variety_or_404(db, str(src.variety_id))
 
     fert1_rate, fert2_rate, fert2_formula, fert1_note, fert2_note = _resolve_fert(variety)
 
@@ -279,7 +268,7 @@ def clone_plan(
             is_photoperiod_sensitive=bool(variety.is_photoperiod_sensitive),
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise bad_request(str(e))
 
     new_plan = PlantingPlan(
         user_id=current_user.id,
@@ -323,7 +312,7 @@ def delete_plan(
         PlantingPlan.user_id == current_user.id,
     ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="ไม่พบแผน")
+        raise not_found("ไม่พบแผน")
 
     db.query(PlanTask).filter(PlanTask.plan_id == plan_id).delete()
     db.delete(plan)
