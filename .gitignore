@@ -21,3 +21,4 @@ uploads/
 .claude/
 CLAUDE_INSTRUCTIONS.md
 experiment_run.py
+./artifacts/
