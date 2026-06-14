@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     # RAG config (เปลี่ยนเพื่อทำ experiment)
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
-    RETRIEVAL_STRATEGY: str = "mmr"  # "similarity" หรือ "mmr"
     RETRIEVAL_K: int = 5
     LLM_TEMPERATURE: float = 0.3
 

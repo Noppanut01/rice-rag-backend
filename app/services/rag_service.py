@@ -11,6 +11,7 @@ from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.core.config import settings
+from app.utils.text import normalize_question
 from app.services.document_loaders import load_documents
 from app.services.rag_prompts import (
     DEFAULT_PROMPT_SUGGESTIONS,
@@ -40,7 +41,7 @@ def _normalize_prompt_suggestions(items: list[dict]) -> list[dict]:
         if not content.endswith("?"):
             content = f"{content}?"
 
-        key = content.lower()
+        key = normalize_question(content)
         if key in seen:
             continue
         seen.add(key)
@@ -125,12 +126,9 @@ class RAGService:
             try:
                 if vs._collection.count() == 0:
                     continue
-                if settings.RETRIEVAL_STRATEGY == "mmr":
-                    docs = vs.max_marginal_relevance_search(
-                        question, k=settings.RETRIEVAL_K, fetch_k=10
-                    )
-                else:
-                    docs = vs.similarity_search(question, k=settings.RETRIEVAL_K)
+                docs = vs.max_marginal_relevance_search(
+                    question, k=settings.RETRIEVAL_K, fetch_k=10
+                )
                 all_docs.extend(docs)
             except Exception:
                 pass
@@ -204,7 +202,7 @@ class RAGService:
             "sources": sources,
             "model_used": settings.GEMINI_MODEL,
             "embedding_model": settings.GEMINI_EMBEDDING_MODEL,
-            "retrieval_strategy": settings.RETRIEVAL_STRATEGY,
+            "retrieval_strategy": "mmr",
             "chunk_size": settings.CHUNK_SIZE,
             "retrieval_k": settings.RETRIEVAL_K,
             "chunks_retrieved": len(docs),

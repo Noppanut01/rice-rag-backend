@@ -22,8 +22,6 @@ class RiceVariety(Base):
     tillering_day = Column(Integer, nullable=False)
     panicle_initiation_day = Column(Integer, nullable=False)
     heading_day = Column(Integer, nullable=True)
-    # Legacy column — runtime ไม่ filter ตาม is_active แล้ว (เก็บไว้หลีกเลี่ยง migration)
-    is_active = Column(Boolean, default=True, nullable=False)
 
     # ปุ๋ย — อัตรา (กก./ไร่) สูตรและหมายเหตุ
     fert1_rate = Column(Float, nullable=False)
