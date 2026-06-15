@@ -31,5 +31,6 @@ class ChatHistoryItem(BaseModel):
     id: str
     question: str
     answer: str
+    sources: list[str] = []
     model_used: str
     created_at: str

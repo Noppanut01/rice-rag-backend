@@ -25,6 +25,16 @@ _QUESTION_SUFFIX_RE = re.compile(
     r")\s*$"
 )
 
+_GENERAL_KNOWLEDGE_MARKERS = (
+    "ไม่ทราบ",
+    "ไม่พบในเอกสารอ้างอิง",
+    "คำตอบนี้ใช้ความรู้ทั่วไป",
+)
+
+
+def answer_uses_general_knowledge(answer: str) -> bool:
+    return any(marker in answer for marker in _GENERAL_KNOWLEDGE_MARKERS)
+
 
 def normalize_question(question: str) -> str:
     normalized = question.strip()

@@ -42,8 +42,18 @@ def create_template(
 
 
 @router.post("/generate", response_model=list[dict])
-def generate_suggestions(_=Depends(require_admin)):
-    return rag_service.generate_prompt_suggestions()
+def generate_suggestions(
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    existing = (
+        db.query(PromptTemplate.content)
+        .order_by(PromptTemplate.created_at.desc())
+        .limit(30)
+        .all()
+    )
+    existing_questions = [row[0] for row in existing]
+    return rag_service.generate_prompt_suggestions(existing_questions=existing_questions)
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)

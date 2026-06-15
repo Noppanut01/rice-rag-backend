@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
     RETRIEVAL_K: int = 5
+    RETRIEVAL_MIN_SCORE: float = 0.5
     LLM_TEMPERATURE: float = 0.3
 
     # ChromaDB

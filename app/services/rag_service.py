@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import time
 
@@ -11,11 +12,12 @@ from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from app.core.config import settings
-from app.utils.text import normalize_question
+from app.utils.text import answer_uses_general_knowledge, normalize_question
 from app.services.document_loaders import load_documents
 from app.services.rag_prompts import (
     DEFAULT_PROMPT_SUGGESTIONS,
     NO_RAG_TEMPLATE,
+    PROMPT_SUGGESTION_TOPICS,
     PROMPT_SUGGESTIONS_TEMPLATE,
     RAG_QA_TEMPLATE,
 )
@@ -118,7 +120,7 @@ class RAGService:
                 )
 
     def _search(self, collections: list[str], question: str) -> list:
-        all_docs = []
+        scored_docs: list[tuple] = []
         for name in collections:
             vs = self.vectorstores.get(name)
             if vs is None:
@@ -126,15 +128,18 @@ class RAGService:
             try:
                 if vs._collection.count() == 0:
                     continue
-                docs = vs.max_marginal_relevance_search(
-                    question, k=settings.RETRIEVAL_K, fetch_k=10
+                results = vs.similarity_search_with_relevance_scores(
+                    question, k=settings.RETRIEVAL_K
                 )
-                all_docs.extend(docs)
+                for doc, score in results:
+                    if score >= settings.RETRIEVAL_MIN_SCORE:
+                        scored_docs.append((doc, score))
             except Exception:
                 pass
+        scored_docs.sort(key=lambda item: item[1], reverse=True)
         seen = set()
         unique = []
-        for doc in all_docs:
+        for doc, _score in scored_docs:
             key = doc.page_content[:80]
             if key not in seen:
                 seen.add(key)
@@ -175,14 +180,6 @@ class RAGService:
         if plan_context:
             context = f"{plan_context}\n\nเอกสารอ้างอิง:\n{context}"
 
-        seen_sources = set()
-        sources = []
-        for doc in docs:
-            src = os.path.basename(doc.metadata.get("source", ""))
-            if src and src not in seen_sources:
-                seen_sources.add(src)
-                sources.append(src)
-
         history_text = self._build_history_text(history)
 
         prompt = PromptTemplate(
@@ -197,12 +194,23 @@ class RAGService:
             "", str(raw.content) if hasattr(raw, "content") else raw
         ).strip()
 
+        if answer_uses_general_knowledge(answer):
+            docs = []
+
+        seen_sources = set()
+        sources = []
+        for doc in docs:
+            src = os.path.basename(doc.metadata.get("source", ""))
+            if src and src not in seen_sources:
+                seen_sources.add(src)
+                sources.append(src)
+
         return {
             "answer": answer,
             "sources": sources,
             "model_used": settings.GEMINI_MODEL,
             "embedding_model": settings.GEMINI_EMBEDDING_MODEL,
-            "retrieval_strategy": "mmr",
+            "retrieval_strategy": "relevance_threshold",
             "chunk_size": settings.CHUNK_SIZE,
             "retrieval_k": settings.RETRIEVAL_K,
             "chunks_retrieved": len(docs),
@@ -211,21 +219,29 @@ class RAGService:
             "response_time_ms": round((time.time() - start) * 1000),
         }
 
-    def generate_prompt_suggestions(self) -> list[dict]:
-        query = "การปลูกข้าว การดูแลรักษา ปุ๋ย โรคและแมลง การจัดการน้ำ การเก็บเกี่ยว"
+    def generate_prompt_suggestions(self, existing_questions: list[str] | None = None) -> list[dict]:
+        topics = random.sample(
+            PROMPT_SUGGESTION_TOPICS,
+            k=min(random.randint(2, 3), len(PROMPT_SUGGESTION_TOPICS)),
+        )
+        query = " ".join(topics)
         docs = self._search(list(self.vectorstores.keys()), query)
-        context = "\n\n".join([doc.page_content for doc in docs])[:12000]
+        context = "\n\n".join([doc.page_content for doc in docs])
+
+        existing = existing_questions or []
+        existing_text = (
+            "\n".join(f"- {q}" for q in existing)
+            if existing
+            else "(ยังไม่มีคำถามในระบบ)"
+        )
 
         prompt = PromptTemplate(
             template=PROMPT_SUGGESTIONS_TEMPLATE,
-            input_variables=["context"],
+            input_variables=["context", "existing_questions"],
         )
-        llm_creative = ChatGoogleGenerativeAI(
-            model=settings.GEMINI_MODEL,
-            google_api_key=settings.GEMINI_API_KEY,
-            temperature=0.4,
+        raw = (prompt | self.llm).invoke(
+            {"context": context, "existing_questions": existing_text}
         )
-        raw = (prompt | llm_creative).invoke({"context": context})
         raw = str(raw.content) if hasattr(raw, "content") else raw
         raw = raw.strip()
 

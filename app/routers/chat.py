@@ -103,6 +103,7 @@ def history(db: Session = Depends(get_db), current_user=Depends(get_current_user
             id=str(h.id),
             question=str(h.question),
             answer=str(h.answer),
+            sources=list(h.sources or []),
             model_used=str(h.model_used),
             created_at=str(h.created_at),
         )
